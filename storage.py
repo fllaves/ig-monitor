@@ -276,6 +276,19 @@ CREATE INDEX IF NOT EXISTS idx_ext_comments_source ON external_comments(source_u
 CREATE INDEX IF NOT EXISTS idx_ext_comments_owner ON external_comments(owner_username);
 CREATE INDEX IF NOT EXISTS idx_ext_posts_source ON external_posts(source_username);
 
+CREATE TABLE IF NOT EXISTS story_mentions (
+    id                 TEXT PRIMARY KEY,
+    source_username    TEXT,
+    mentioned_username TEXT,
+    direction          TEXT,
+    url                TEXT,
+    timestamp          TEXT,
+    captured_at        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_story_mentions_source ON story_mentions(source_username);
+CREATE INDEX IF NOT EXISTS idx_story_mentions_mentioned ON story_mentions(mentioned_username);
+
 CREATE INDEX IF NOT EXISTS idx_relation_events_detected ON relation_events(detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_mentions_captured ON mentions(captured_at);
@@ -321,6 +334,7 @@ def reset_db() -> None:
     """Borra todos los datos y deja el esquema vacío listo para usar."""
     conn = _connect()
     conn.executescript(
+        "DROP TABLE IF EXISTS story_mentions;"
         "DROP TABLE IF EXISTS external_comments;"
         "DROP TABLE IF EXISTS external_posts;"
         "DROP TABLE IF EXISTS watchlist;"
@@ -952,6 +966,57 @@ def get_external_posts() -> List[Dict[str, Any]]:
 
 def get_external_comments() -> List[Dict[str, Any]]:
     return _rows("SELECT * FROM external_comments ORDER BY timestamp DESC")
+
+
+# --- Menciones en historias (stories) ----------------------------------------
+
+def save_story_mentions(items: Iterable[Dict[str, Any]], captured_at: str = None) -> int:
+    """Guarda menciones en historias.
+
+    Cada item: {source_username, mentioned_username, direction, url, timestamp}.
+    `direction` es 'them_to_me' (te mencionan) o 'me_to_them' (las mencionas).
+    """
+    captured_at = captured_at or utcnow()
+    me = (config.USERNAME or "").strip().lstrip("@").lower()
+    conn = _connect()
+    count = 0
+    for s in items or []:
+        source = str(s.get("source_username") or "").strip().lstrip("@")
+        mentioned = str(s.get("mentioned_username") or "").strip().lstrip("@")
+        url = s.get("url") or ""
+        sid = str(s.get("id") or url or f"{source}-{mentioned}-{s.get('timestamp')}")
+        if not sid or not source:
+            continue
+        direction = s.get("direction")
+        if not direction:
+            direction = "them_to_me" if mentioned.lower() == me else "me_to_them"
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO story_mentions(
+                id, source_username, mentioned_username, direction, url,
+                timestamp, captured_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (sid, source.lower(), mentioned.lower(), direction, url,
+             s.get("timestamp"), captured_at),
+        )
+        count += 1
+    _close(conn)
+    return count
+
+
+def import_story_mentions(payload: Any) -> int:
+    """Acepta una lista o un objeto {'story_mentions': [...]}."""
+    init_db()
+    if isinstance(payload, dict):
+        items = payload.get("story_mentions") or payload.get("mentions") or []
+    else:
+        items = payload or []
+    return save_story_mentions(items)
+
+
+def get_story_mentions() -> List[Dict[str, Any]]:
+    return _rows("SELECT * FROM story_mentions ORDER BY timestamp DESC")
 
 
 def has_data() -> bool:

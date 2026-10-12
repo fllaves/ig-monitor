@@ -26,10 +26,11 @@ local (SQLite) y muestra tendencias, KPIs y análisis de engagement.
   la sigues, desde cuándo, historial de cambios, categoría, bio).
 - **Historial de interacciones**: por cuenta, combinando follows/unfollows,
   menciones que haces, menciones que te hacen y comentarios que recibes.
-- **⭐ Cuentas destacadas (watchlist)**: una pestaña por cuenta con TODAS las
-  señales disponibles: si te sigue / la sigues, historial de follow/unfollow,
-  menciones (tuyas y de ellos) y **sus publicaciones + comentarios** (incluidos
-  los que TÚ dejas en sus posts) descargados con Apify.
+- **⭐ Cuentas destacadas (watchlist)** *(al final del panel)*: una pestaña por
+  cuenta con TODAS las señales: si te sigue / la sigues, historial de
+  follow/unfollow, menciones (tuyas y de ellos), **menciones en historias** (con
+  enlace) y **sus publicaciones + comentarios** (incluidos los que TÚ dejas en
+  sus posts) descargados con Apify.
 - **Recomendador de limpieza**: cuentas que sigues y no te siguen de vuelta.
 - **Importar snapshots históricos** (JSON) para incorporar datos anteriores a Apify.
 - **Seguidores mutuos (mutuals)**: cruza ambas listas para ver quién te sigue y

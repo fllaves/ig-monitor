@@ -526,7 +526,7 @@ def account_report(history: List[Dict], events: List[Dict], posts: List[Dict],
 
 def watch_interactions(external_posts: List[Dict], external_comments: List[Dict],
                        my_post_comments: List[Dict], watched: str,
-                       me: str) -> Dict[str, Any]:
+                       me: str, story_mentions: List[Dict] = None) -> Dict[str, Any]:
     """Interacciones públicas entre 'me' y una cuenta destacada."""
     w = str(watched).strip().lstrip("@").lower()
     me_key = (me or "").strip().lstrip("@").lower()
@@ -544,14 +544,25 @@ def watch_interactions(external_posts: List[Dict], external_comments: List[Dict]
     their_comments = [c for c in ext if owner(c) == w]
     their_comments_on_mine = [c for c in (my_post_comments or []) if owner(c) == w]
 
+    sm = story_mentions or []
+    stories_from_them = [s for s in sm
+                         if (s.get("source_username") or "").strip().lower() == w]
+    stories_of_me = [s for s in sm
+                     if (s.get("mentioned_username") or "").strip().lower() == w]
+
     dates = [(c.get("timestamp") or "") for c in (my_comments_on_theirs + their_comments_on_mine)
              if c.get("timestamp")]
+    dates += [(s.get("timestamp") or "") for s in (stories_from_them + stories_of_me)
+              if s.get("timestamp")]
     return {
         "their_posts": their_posts,
         "my_comments_on_theirs": my_comments_on_theirs,
         "their_comments_on_mine": their_comments_on_mine,
         "their_comments": their_comments,
-        "total": len(my_comments_on_theirs) + len(their_comments_on_mine) + len(their_comments),
+        "stories_from_them": stories_from_them,
+        "stories_of_me": stories_of_me,
+        "total": (len(my_comments_on_theirs) + len(their_comments_on_mine)
+                  + len(their_comments) + len(stories_from_them) + len(stories_of_me)),
         "oldest": min(dates) if dates else "",
         "newest": max(dates) if dates else "",
     }
