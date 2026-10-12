@@ -1,0 +1,164 @@
+"""Cliente ligero de la API REST de Apify (sin dependencias externas).
+
+Usa únicamente la librería estándar (`urllib`) para no depender de paquetes
+con extensiones nativas. Implementa el flujo completo:
+
+    1. Lanzar un Actor.
+    2. Esperar a que termine (polling del estado).
+    3. Descargar todos los resultados del dataset (paginado).
+"""
+import json
+import time
+import urllib.request
+import urllib.parse
+from typing import Any, Dict, List, Tuple
+
+import config
+
+BASE_URL = "https://api.apify.com/v2"
+
+_STATUS_DONE = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
+
+
+def _url(path: str, token: str, **params: Any) -> str:
+    qs = urllib.parse.urlencode({"token": token, **params})
+    return f"{BASE_URL}{path}?{qs}"
+
+
+def _request_json(url: str, data: Dict = None, timeout: int = 60) -> Any:
+    headers = {}
+    body = None
+    if data is not None:
+        body = json.dumps(data).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=body, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def run_actor(token: str, run_input: Dict[str, Any], actor_id: str = None,
+              timeout_secs: int = 900, poll_secs: int = 5) -> Tuple[List[Dict], str]:
+    """Ejecuta un Actor y devuelve (items, run_id)."""
+    token = token or config.APIFY_TOKEN
+    actor_id = actor_id or config.ACTOR_ID
+    if not token:
+        raise RuntimeError("Falta APIFY_TOKEN. Cópialo en el archivo .env")
+
+    # 1) Lanzar
+    run_url = _url(f"/acts/{actor_id}/runs", token)
+    payload = _request_json(run_url, data=run_input)
+    run = payload["data"]
+    run_id = run["id"]
+    dataset_id = run.get("defaultDatasetId")
+
+    # 2) Esperar a que termine
+    deadline = time.time() + timeout_secs
+    status = run.get("status")
+    while status not in _STATUS_DONE:
+        if time.time() > deadline:
+            raise TimeoutError(f"El run {run_id} tardó más de {timeout_secs}s")
+        time.sleep(poll_secs)
+        info = _request_json(_url(f"/actor-runs/{run_id}", token), timeout=30)
+        status = info["data"]["status"]
+
+    if status != "SUCCEEDED":
+        raise RuntimeError(f"El run de Apify terminó con estado {status} (run {run_id})")
+
+    items = fetch_dataset(token, dataset_id)
+    return items, run_id
+
+
+def fetch_dataset(token: str, dataset_id: str, page_size: int = 1000) -> List[Dict]:
+    """Descarga todos los items de un dataset (paginado)."""
+    items: List[Dict] = []
+    offset = 0
+    while True:
+        url = _url(f"/datasets/{dataset_id}/items", token,
+                   format="json", offset=offset, limit=page_size, clean=1)
+        batch = _request_json(url, timeout=120)
+        if not batch:
+            break
+        items.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += len(batch)
+    return items
+
+
+class InstagramSource:
+    """Fuente de datos de Instagram vía Apify."""
+
+    def __init__(self, token: str = ""):
+        self.token = token or config.APIFY_TOKEN
+
+    def fetch_profile(self) -> List[Dict]:
+        items, _ = run_actor(
+            self.token,
+            {
+                "resultsType": "details",
+                "directUrls": [config.PROFILE_URL],
+                "resultsLimit": 1,
+            },
+        )
+        return items
+
+    def fetch_posts(self, limit: int = None) -> List[Dict]:
+        items, _ = run_actor(
+            self.token,
+            {
+                "resultsType": "posts",
+                "directUrls": [config.PROFILE_URL],
+                "resultsLimit": limit or config.RESULTS_LIMIT,
+            },
+        )
+        return items
+
+    def fetch_relations(self, data_to_scrape: str, limit: int = None) -> List[Dict]:
+        """Descarga la lista de seguidores ('followers') o seguidos ('following')."""
+        limit = limit or (
+            config.FOLLOWERS_LIMIT if data_to_scrape == "followers"
+            else config.FOLLOWING_LIMIT
+        )
+        items, _ = run_actor(
+            self.token,
+            {
+                "usernames": [config.USERNAME],
+                "dataToScrape": data_to_scrape,
+                "resultsLimit": limit,
+            },
+            actor_id=config.FOLLOWERS_ACTOR_ID,
+        )
+        # El Actor devuelve filas de error (p. ej. perfil privado) en lugar de lista
+        return [i for i in items if not i.get("error")]
+
+    def fetch_followers(self, limit: int = None) -> List[Dict]:
+        return self.fetch_relations("followers", limit)
+
+    def fetch_following(self, limit: int = None) -> List[Dict]:
+        return self.fetch_relations("following", limit)
+
+    def fetch_comments(self, post_urls: List[str], limit: int = None) -> List[Dict]:
+        """Descarga comentarios de una lista de URLs de publicaciones."""
+        limit = limit or config.COMMENTS_PER_POST
+        items, _ = run_actor(
+            self.token,
+            {
+                "resultsType": "comments",
+                "directUrls": post_urls,
+                "resultsLimit": limit,
+            },
+        )
+        return [i for i in items if not i.get("error")]
+
+    def fetch_mentions(self, limit: int = None) -> List[Dict]:
+        """Descarga publicaciones donde te han etiquetado."""
+        limit = limit or config.MENTIONS_LIMIT
+        items, _ = run_actor(
+            self.token,
+            {
+                "resultsType": "mentions",
+                "directUrls": [config.PROFILE_URL],
+                "resultsLimit": limit,
+            },
+        )
+        return [i for i in items if not i.get("error")]
