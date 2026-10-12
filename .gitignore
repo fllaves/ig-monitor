@@ -5,3 +5,8 @@ data/
 __pycache__/
 *.pyc
 .DS_Store
+*.json
+
+# Requiere el scope 'workflow' del token de GitHub.
+# Para activarlo: crea el archivo en GitHub → Actions, o amplía el scope.
+.github/workflows/
