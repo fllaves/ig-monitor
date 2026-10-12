@@ -179,6 +179,25 @@ Los DM son **privados** y no se pueden leer con scraping público (Apify trabaja
 sin login). Las señales públicas de "quién interactúa contigo" que sí captura
 este centro son: **comentarios**, **menciones/etiquetas** y **nuevos seguidores**.
 
+## Scraper local con la cuenta burner (opcional)
+
+⚠️ Va **contra los términos de Instagram** y puede bloquear la cuenta burner.
+El panel **no** lo ejecuta: corre en tu Mac y usa la sesión del navegador.
+
+```bash
+pip install requests browser_cookie3
+# cierra Brave antes de ejecutarlo
+python burner_scrape.py --username TU_USUARIO \
+    --watchlist PP,BC,F,JU,DRZ
+```
+
+Genera dos archivos que se suben al panel:
+
+| Archivo | Dónde subirlo |
+|---|---|
+| `burner_snapshot.json` (seguidos + seguidores completos) | 📥 Importar snapshot histórico |
+| `burner_stories.json` (menciones en historias) | 📥 Importar menciones de historias |
+
 ## Solución de problemas
 
 - **"Falta APIFY_TOKEN"**: crea `.env` y pega tu token, o define la variable
