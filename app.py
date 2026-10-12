@@ -183,7 +183,11 @@ with st.sidebar:
     with st.expander("🔧 Diagnóstico de conexión"):
         if st.button("Probar base + Apify", width="stretch"):
             d = storage.diagnose()
+            _tok = config.APIFY_TOKEN
             st.write(f"**Backend:** {d['backend']}")
+            st.write(f"**Token Apify:** {'✅ presente' if _tok else '❌ falta'} · "
+                     f"longitud **{len(_tok)}** (debe ser 46) · empieza por apify_api_: "
+                     f"{'✅' if _tok.startswith('apify_api_') else '❌'}")
             st.write(f"**IG_USERNAME configurado:** {'✅' if d['username_configurado'] else '❌'}")
             st.write(f"**Escritura:** {'✅' if d['write_ok'] else '❌'} · "
                      f"**Lectura:** {'✅' if d['read_ok'] else '❌'}")
