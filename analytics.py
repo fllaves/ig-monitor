@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 try:
     import plotly.graph_objects as go
@@ -447,6 +447,71 @@ def account_card(history: List[Dict], events: List[Dict], profiles: Dict[str, Di
         "events": sorted(evs, key=lambda e: e.get("detected_at") or "", reverse=True),
         "profile_url": f"https://www.instagram.com/{username}/",
     }
+
+
+# --- Historial de interacciones ----------------------------------------------
+
+def interaction_index(history: List[Dict], events: List[Dict], posts: List[Dict],
+                      comments: List[Dict], mentions: List[Dict],
+                      exclude: Iterable[str] = ()) -> List[Dict]:
+    """Índice de interacciones por cuenta combinando señales públicas.
+
+    Señales incluidas: follows/unfollows, menciones que haces en tus captions,
+    menciones que te hacen y comentarios que recibes en tus publicaciones.
+    """
+    excluded = {str(x).strip().lstrip("@").lower() for x in exclude if x}
+    idx: Dict[str, Dict] = {}
+
+    def entry(name) -> Optional[Dict]:
+        key = (str(name) if name else "").strip().lstrip("@").lower()
+        if not key or key in excluded:
+            return None
+        return idx.setdefault(key, {
+            "key": key,
+            "username": str(name).strip().lstrip("@"),
+            "follow_events": 0,
+            "mentioned_by_me": 0,
+            "mentions_me": 0,
+            "comments_received": 0,
+            "last": "",
+        })
+
+    for e in events or []:
+        d = entry(e.get("username") or e.get("user_id"))
+        if d is None:
+            continue
+        d["follow_events"] += 1
+        d["last"] = max(d["last"], (e.get("detected_at") or "")[:10])
+
+    for p in posts or []:
+        for m in (p.get("mentions") or []):
+            d = entry(m)
+            if d is None:
+                continue
+            d["mentioned_by_me"] += 1
+
+    for m in mentions or []:
+        d = entry(m.get("owner_username"))
+        if d is None:
+            continue
+        d["mentions_me"] += 1
+        d["last"] = max(d["last"], (m.get("timestamp") or "")[:10])
+
+    for c in comments or []:
+        d = entry(c.get("owner_username"))
+        if d is None:
+            continue
+        d["comments_received"] += 1
+        d["last"] = max(d["last"], (c.get("timestamp") or "")[:10])
+
+    out = []
+    for v in idx.values():
+        v["total"] = (v["follow_events"] + v["mentioned_by_me"]
+                      + v["mentions_me"] + v["comments_received"])
+        if v["total"] > 0:
+            out.append(v)
+    out.sort(key=lambda x: (-x["total"], x["username"].lower()))
+    return out
 
 
 # --- Limpieza ----------------------------------------------------------------

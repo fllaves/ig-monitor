@@ -24,6 +24,8 @@ local (SQLite) y muestra tendencias, KPIs y análisis de engagement.
   música, deporte…) con enriquecimiento opcional de bios vía Apify.
 - **Ficha 360 por cuenta**: todo lo que sabemos de una cuenta concreta (te sigue,
   la sigues, desde cuándo, historial de cambios, categoría, bio).
+- **Historial de interacciones**: por cuenta, combinando follows/unfollows,
+  menciones que haces, menciones que te hacen y comentarios que recibes.
 - **Recomendador de limpieza**: cuentas que sigues y no te siguen de vuelta.
 - **Importar snapshots históricos** (JSON) para incorporar datos anteriores a Apify.
 - **Seguidores mutuos (mutuals)**: cruza ambas listas para ver quién te sigue y

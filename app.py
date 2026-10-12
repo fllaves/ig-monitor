@@ -522,6 +522,31 @@ else:
 
 st.divider()
 
+# --- Historial de interacciones ----------------------------------------------
+
+st.subheader("🤝 Historial de interacciones por cuenta")
+inter_idx = analytics.interaction_index(
+    relation_history, events, posts, data["comments"], data["mentions"],
+    exclude=(config.USERNAME,),
+)
+inter_map = {i["key"]: i for i in inter_idx}
+if inter_idx:
+    st.caption("Combina follows/unfollows, menciones que **haces**, menciones que **te hacen** "
+               "y comentarios que **recibes** (las señales públicas disponibles).")
+    st.dataframe([{
+        "Usuario": i["username"],
+        "Follows/Unfollows": i["follow_events"],
+        "Menciones que haces": i["mentioned_by_me"],
+        "Menciones que te hacen": i["mentions_me"],
+        "Comentarios recibidos": i["comments_received"],
+        "Total": i["total"],
+        "Última": i["last"],
+    } for i in inter_idx[:300]], width="stretch", hide_index=True)
+else:
+    st.caption("Sin interacciones registradas todavía.")
+
+st.divider()
+
 # --- Ficha 360 ---------------------------------------------------------------
 
 st.subheader("🔎 Ficha 360 por cuenta")
@@ -540,6 +565,13 @@ if all_keys:
         k2.metric("La sigues", "✅" if card["is_following"] else "❌")
         k3.metric("Mutuo", "✅" if card["mutual"] else "❌")
         k4.metric("Fotos donde aparece", card["snapshots"])
+        inter = inter_map.get(str(chosen_acc).strip().lstrip("@").lower())
+        if inter:
+            i1, i2, i3, i4 = st.columns(4)
+            i1.metric("Follows/Unfollows", inter["follow_events"])
+            i2.metric("Menciones que haces", inter["mentioned_by_me"])
+            i3.metric("Menciones que te hacen", inter["mentions_me"])
+            i4.metric("Comentarios recibidos", inter["comments_received"])
         st.markdown(
             f"**@{config.mask(card['username'])}**"
             + (f" · {config.mask(card['full_name'])}" if card.get("full_name") else "")
