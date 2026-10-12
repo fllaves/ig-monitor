@@ -39,6 +39,10 @@ def load_cookies(browser: str) -> dict:
     if "sessionid" not in cookies:
         raise SystemExit("No encontré 'sessionid'. ¿Cerraste el navegador y autorizaste el Llavero?")
     print(f"  ✔ Sesión encontrada (usuario id {cookies.get('ds_user_id', '?')})")
+    importantes = ["sessionid", "csrftoken", "ds_user_id", "mid", "ig_did", "rur"]
+    print("  · Cookies clave: " + ", ".join(
+        f"{k}={'✅' if k in cookies else '❌'}" for k in importantes))
+    print(f"  · Longitud de sessionid: {len(cookies.get('sessionid', ''))}")
     return cookies
 
 
