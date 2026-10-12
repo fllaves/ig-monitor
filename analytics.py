@@ -948,3 +948,84 @@ def fig_retention(retentions: List[Dict]) -> go.Figure:
         margin=dict(t=40, b=40), template="plotly_white",
     )
     return fig
+
+
+# --- Actividad diaria --------------------------------------------------------
+
+def daily_digest(events: List[Dict], posts: List[Dict], comments: List[Dict],
+                 mentions: List[Dict], ingest: List[Dict] = None,
+                 day: str = None) -> Dict[str, Any]:
+    """Resumen de la actividad de un día concreto (fecha UTC YYYY-MM-DD)."""
+    day = day or datetime.utcnow().strftime("%Y-%m-%d")
+
+    def on(value) -> bool:
+        return (value or "")[:10] == day
+
+    def ev(kind: str) -> List[Dict]:
+        return [e for e in (events or [])
+                if e.get("event_type") == kind and on(e.get("detected_at"))]
+
+    day_posts = [p for p in (posts or []) if on(p.get("timestamp"))]
+    new_fol, lost_fol = ev("new_follower"), ev("lost_follower")
+    new_foing, lost_foing = ev("new_following"), ev("lost_following")
+    day_comments = [c for c in (comments or []) if on(c.get("timestamp"))]
+    day_mentions = [m for m in (mentions or []) if on(m.get("timestamp"))]
+    day_ingest = [i for i in (ingest or []) if on(i.get("ts"))]
+
+    likes = sum((p.get("likesCount") or p.get("likes_count") or 0) for p in day_posts)
+    return {
+        "day": day,
+        "posts": len(day_posts),
+        "likes": likes,
+        "comments_received": len(day_comments),
+        "mentions_received": len(day_mentions),
+        "new_followers": len(new_fol),
+        "lost_followers": len(lost_fol),
+        "new_following": len(new_foing),
+        "lost_following": len(lost_foing),
+        "net_followers": len(new_fol) - len(lost_fol),
+        "sources": day_ingest,
+        "lost_follower_names": [e.get("username") for e in lost_fol][:25],
+        "new_follower_names": [e.get("username") for e in new_fol][:25],
+        "commenters": [c.get("owner_username") for c in day_comments][:25],
+    }
+
+
+def activity_series(events: List[Dict], posts: List[Dict], comments: List[Dict],
+                    mentions: List[Dict], days: int = 14) -> List[Dict]:
+    """Serie diaria de actividad de los últimos N días."""
+    from datetime import timedelta
+
+    today = datetime.utcnow().date()
+    out = []
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        g = daily_digest(events, posts, comments, mentions, [], day=d)
+        out.append({
+            "day": d,
+            "posts": g["posts"],
+            "comentarios": g["comments_received"],
+            "seguidores_neto": g["net_followers"],
+            "menciones": g["mentions_received"],
+        })
+    return out
+
+
+def fig_activity(series: List[Dict]) -> go.Figure:
+    """Gráfico de la actividad diaria."""
+    _need_plotly()
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=[s["day"] for s in series], y=[s["posts"] for s in series],
+                         name="Posts", marker_color=DEFAULT_COLOR))
+    fig.add_trace(go.Bar(x=[s["day"] for s in series], y=[s["comentarios"] for s in series],
+                         name="Comentarios", marker_color=GREEN))
+    fig.add_trace(go.Scatter(x=[s["day"] for s in series],
+                             y=[s["seguidores_neto"] for s in series],
+                             name="Seguidores (neto)", mode="lines+markers",
+                             line=dict(color=AMBER, width=3)))
+    fig.update_layout(
+        title="Actividad diaria",
+        barmode="group", yaxis_title="Cantidad",
+        margin=dict(t=40, b=40), template="plotly_white",
+    )
+    return fig

@@ -289,6 +289,16 @@ CREATE TABLE IF NOT EXISTS story_mentions (
 CREATE INDEX IF NOT EXISTS idx_story_mentions_source ON story_mentions(source_username);
 CREATE INDEX IF NOT EXISTS idx_story_mentions_mentioned ON story_mentions(mentioned_username);
 
+CREATE TABLE IF NOT EXISTS ingest_log (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      TEXT NOT NULL,
+    source  TEXT,
+    detail  TEXT,
+    items   INTEGER DEFAULT 0,
+    status  TEXT DEFAULT 'ok',
+    message TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_relation_events_detected ON relation_events(detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_mentions_captured ON mentions(captured_at);
@@ -334,6 +344,7 @@ def reset_db() -> None:
     """Borra todos los datos y deja el esquema vacío listo para usar."""
     conn = _connect()
     conn.executescript(
+        "DROP TABLE IF EXISTS ingest_log;"
         "DROP TABLE IF EXISTS story_mentions;"
         "DROP TABLE IF EXISTS external_comments;"
         "DROP TABLE IF EXISTS external_posts;"
@@ -575,6 +586,7 @@ def import_snapshot(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     nf = save_relations_simple(names(payload.get("followers")), "follower", captured_at)
     ng = save_relations_simple(names(payload.get("following")), "following", captured_at)
+    log_ingest("snapshot", f"snapshot histórico {captured_at[:10]}", nf + ng, ts=captured_at)
     return {"captured_at": captured_at, "followers": nf, "following": ng}
 
 
@@ -1012,11 +1024,31 @@ def import_story_mentions(payload: Any) -> int:
         items = payload.get("story_mentions") or payload.get("mentions") or []
     else:
         items = payload or []
-    return save_story_mentions(items)
+    n = save_story_mentions(items)
+    log_ingest("stories", "menciones en historias", n)
+    return n
 
 
 def get_story_mentions() -> List[Dict[str, Any]]:
     return _rows("SELECT * FROM story_mentions ORDER BY timestamp DESC")
+
+
+# --- Registro de fuentes de datos (ingest log) -------------------------------
+
+def log_ingest(source: str, detail: str = "", items: int = 0,
+               status: str = "ok", message: str = "", ts: str = None) -> None:
+    """Registra de qué fuente y cuándo se consumieron datos."""
+    conn = _connect()
+    conn.execute(
+        "INSERT INTO ingest_log(ts, source, detail, items, status, message)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (ts or utcnow(), source, detail, int(items or 0), status, message),
+    )
+    _close(conn)
+
+
+def get_ingest_log(limit: int = 300) -> List[Dict[str, Any]]:
+    return _rows("SELECT * FROM ingest_log ORDER BY id DESC LIMIT ?", (limit,))
 
 
 def has_data() -> bool:

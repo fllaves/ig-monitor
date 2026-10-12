@@ -88,3 +88,53 @@ def check_and_alert(relation_history: List[Dict], posts: Optional[List[Dict]] = 
 
     ok, info = send_telegram(message)
     return {"sent": ok, "info": info, "message": message}
+
+
+def build_daily_message(digest: Dict[str, Any], sync_result: Dict = None) -> str:
+    """Construye el resumen diario de actividad para Telegram."""
+    d = digest
+    lines = [f"📊 Actividad de {config.DISPLAY_NAME} · {d['day']}", ""]
+    lines.append(f"📝 Posts publicados: {d['posts']}")
+    if d["posts"]:
+        lines.append(f"❤️ Likes en esos posts: {d['likes']:,}")
+    lines.append(f"💬 Comentarios recibidos: {d['comments_received']}")
+    lines.append(f"🏷️ Menciones recibidas: {d['mentions_received']}")
+    lines.append(f"👥 Seguidores: +{d['new_followers']} / −{d['lost_followers']} "
+                 f"(neto {d['net_followers']:+d})")
+    lines.append(f"🔁 Seguidos: +{d['new_following']} / −{d['lost_following']}")
+
+    if d.get("new_follower_names"):
+        lines.append("")
+        lines.append("🟢 Nuevos seguidores: "
+                     + ", ".join(f"@{u}" for u in d["new_follower_names"][:10]))
+    if d.get("lost_follower_names"):
+        lines.append("🔻 Te dejaron de seguir: "
+                     + ", ".join(f"@{u}" for u in d["lost_follower_names"][:10]))
+    if d.get("commenters"):
+        lines.append("💬 Comentaron: "
+                     + ", ".join(f"@{u}" for u in d["commenters"][:10]))
+
+    if d.get("sources"):
+        fuentes = sorted({(s.get("source") or "?") for s in d["sources"]})
+        lines.append("")
+        lines.append("🗂️ Fuentes de datos hoy: " + ", ".join(fuentes))
+
+    if sync_result:
+        lines.append("")
+        lines.append(f"🔄 Sincronización: {sync_result.get('posts', 0)} posts · "
+                     f"{sync_result.get('followers', 0)} seguidores · "
+                     f"{sync_result.get('following', 0)} seguidos")
+        for err in (sync_result.get("errors") or [])[:3]:
+            lines.append(f"⚠ {err}")
+
+    return "\n".join(lines)
+
+
+def send_daily_digest(digest: Dict[str, Any], sync_result: Dict = None,
+                      dry_run: bool = False) -> Dict[str, Any]:
+    """Envía (o simula) el resumen diario por Telegram."""
+    message = build_daily_message(digest, sync_result)
+    if dry_run:
+        return {"sent": False, "dry_run": True, "message": message}
+    ok, info = send_telegram(message)
+    return {"sent": ok, "info": info, "message": message}

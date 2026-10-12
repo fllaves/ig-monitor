@@ -115,6 +115,13 @@ def do_sync(token: str = "", limit: int = None, followers_limit: int = None,
             summary["errors"].append(f"alertas: {exc}")
 
     summary["message"] = "Sincronización completada."
+    storage.log_ingest(
+        "apify",
+        "perfil+posts+seguidores+seguidos+comentarios+menciones",
+        sum(summary.get(k, 0) for k in ("posts", "followers", "following", "comments", "mentions")),
+        status="error" if summary["errors"] else "ok",
+        message="; ".join(summary["errors"])[:300],
+    )
     return summary
 
 
@@ -161,6 +168,12 @@ def do_watch_sync(token: str = "", accounts: list = None,
             summary["errors"].append(f"comentarios: {exc}")
 
     summary["message"] = "Interacciones de destacadas actualizadas."
+    storage.log_ingest(
+        "apify-watch", "posts+comentarios de destacadas",
+        summary["posts"] + summary["comments"],
+        status="error" if summary["errors"] else "ok",
+        message="; ".join(summary["errors"])[:300],
+    )
     return summary
 
 

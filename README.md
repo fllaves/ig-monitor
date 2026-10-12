@@ -31,6 +31,9 @@ local (SQLite) y muestra tendencias, KPIs y análisis de engagement.
   follow/unfollow, menciones (tuyas y de ellos), **menciones en historias** (con
   enlace) y **sus publicaciones + comentarios** (incluidos los que TÚ dejas en
   sus posts) descargados con Apify.
+- **📅 Actividad diaria + registro de fuentes**: resumen del día (posts, likes,
+  comentarios, menciones y seguidores netos) y un **log de qué fuente** aportó
+  los datos y cuándo (`ingest log`).
 - **Recomendador de limpieza**: cuentas que sigues y no te siguen de vuelta.
 - **Importar snapshots históricos** (JSON) para incorporar datos anteriores a Apify.
 - **Seguidores mutuos (mutuals)**: cruza ambas listas para ver quién te sigue y
@@ -197,6 +200,27 @@ Genera dos archivos que se suben al panel:
 |---|---|
 | `burner_snapshot.json` (seguidos + seguidores completos) | 📥 Importar snapshot histórico |
 | `burner_stories.json` (menciones en historias) | 📥 Importar menciones de historias |
+
+## Rutina diaria automática
+
+`daily.py` sincroniza, registra la fuente y envía el resumen del día por Telegram.
+
+```bash
+python daily.py              # sync + resumen
+python daily.py --no-sync    # solo el resumen del día
+python daily.py --dry-run    # muestra el mensaje sin enviarlo
+```
+
+**Opción A — GitHub Actions** (gratis, corre aunque tu Mac esté apagado):
+el workflow `.github/workflows/daily.yml` ya está listo. Solo añade tus secretos
+en GitHub → *Settings → Secrets and variables → Actions*: `APIFY_TOKEN`,
+`IG_USERNAME`, `DATABASE_URL`, `DATABASE_AUTH_TOKEN` y (opcional)
+`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`.
+
+**Opción B — cron local**:
+```cron
+0 8 * * * cd /ruta/a/ig-monitor && .venv/bin/python daily.py >> daily.log 2>&1
+```
 
 ## Solución de problemas
 

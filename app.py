@@ -46,6 +46,7 @@ def load_all() -> Dict[str, Any]:
         "external_posts": storage.get_external_posts(),
         "external_comments": storage.get_external_comments(),
         "story_mentions": storage.get_story_mentions(),
+        "ingest": storage.get_ingest_log(),
     }
 
 
@@ -306,6 +307,48 @@ c3.metric("Publicaciones", f"{kpis['posts']:,}")
 c4.metric("Likes promedio", f"{kpis['avg_likes']:,.1f}")
 c5.metric("Comentarios prom.", f"{kpis['avg_comments']:,.1f}")
 c6.metric("Engagement rate", f"{kpis['avg_engagement_rate']:.2f}%")
+
+st.divider()
+
+# --- Actividad diaria --------------------------------------------------------
+
+st.subheader("📅 Actividad diaria")
+ingest = data["ingest"]
+digest_today = analytics.daily_digest(
+    data["events"], posts, data["comments"], data["mentions"], ingest)
+
+d1, d2, d3, d4, d5 = st.columns(5)
+d1.metric("Posts hoy", digest_today["posts"])
+d2.metric("Comentarios hoy", digest_today["comments_received"])
+d3.metric("Menciones hoy", digest_today["mentions_received"])
+d4.metric("Seguidores hoy", f"{digest_today['net_followers']:+d}",
+          delta=f"+{digest_today['new_followers']} / −{digest_today['lost_followers']}")
+d5.metric("Última ingesta",
+          (ingest[0]["ts"][:16].replace("T", " ") if ingest else "—"))
+
+activity = analytics.activity_series(
+    data["events"], posts, data["comments"], data["mentions"], days=14)
+if activity:
+    st.plotly_chart(analytics.fig_activity(activity), width="stretch")
+
+with st.expander("🗂️ Fuentes de datos consumidas (ingest log)"):
+    if ingest:
+        por_fuente = {}
+        for i in ingest:
+            key = i.get("source") or "?"
+            por_fuente[key] = por_fuente.get(key, 0) + 1
+        st.caption("Ingestas por fuente: " + " · ".join(
+            f"**{k}**: {v}" for k, v in sorted(por_fuente.items())))
+        st.dataframe([{
+            "Cuándo": (i.get("ts") or "")[:19].replace("T", " "),
+            "Fuente": i.get("source"),
+            "Detalle": i.get("detail"),
+            "Registros": i.get("items"),
+            "Estado": "✅" if i.get("status") == "ok" else "⚠️",
+            "Mensaje": (i.get("message") or "")[:90],
+        } for i in ingest[:200]], width="stretch", hide_index=True)
+    else:
+        st.caption("Sin ingestas registradas todavía.")
 
 st.divider()
 
