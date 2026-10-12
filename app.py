@@ -101,6 +101,19 @@ with st.sidebar:
     else:
         st.warning("Apify: sin token (copia el token en `.env`)")
 
+    if not config.USERNAME:
+        st.error("Falta `IG_USERNAME` en los secretos (o `.env`).")
+
+    # Resultado de la última sincronización (sobrevive al rerun)
+    last_sync = st.session_state.pop("sync_result", None)
+    if last_sync:
+        if last_sync.get("ok"):
+            st.success(last_sync["message"])
+        else:
+            st.error(last_sync["message"])
+        for err_line in last_sync.get("errors", []):
+            st.warning(f"⚠ {err_line}")
+
     st.divider()
 
     posts_limit = st.number_input(
@@ -119,25 +132,34 @@ with st.sidebar:
 
     if st.button("🔄 Sincronizar con Apify", width="stretch"):
         if not config.APIFY_TOKEN:
-            st.error("Falta APIFY_TOKEN. Crea el archivo `.env` (ver `.env.example`).")
+            st.session_state["sync_result"] = {
+                "ok": False, "message": "Falta APIFY_TOKEN en los secretos.", "errors": []}
+        elif not config.USERNAME:
+            st.session_state["sync_result"] = {
+                "ok": False,
+                "message": "Falta IG_USERNAME en los secretos (o en `.env`).",
+                "errors": []}
         else:
-            with st.spinner("Descargando datos de Instagram vía Apify… (puede tardar un par de minutos)"):
+            with st.spinner("Descargando datos vía Apify… (puede tardar varios minutos)"):
                 try:
                     result = do_sync(
                         token=config.APIFY_TOKEN, limit=int(posts_limit),
                         followers_limit=int(followers_limit),
                         following_limit=int(following_limit),
                     )
-                    st.success(
-                        f"{result['message']} · {result['posts']} posts · "
-                        f"{result['followers']} seguidores · {result['following']} seguidos · "
-                        f"{result.get('comments', 0)} comentarios · {result.get('mentions', 0)} menciones"
-                    )
-                    for err in result["errors"]:
-                        st.warning(err)
-                    st.rerun()
+                    st.session_state["sync_result"] = {
+                        "ok": True,
+                        "message": (
+                            f"{result['message']} · {result['posts']} posts · "
+                            f"{result['followers']} seguidores · {result['following']} seguidos · "
+                            f"{result.get('comments', 0)} comentarios · {result.get('mentions', 0)} menciones"
+                        ),
+                        "errors": list(result.get("errors", [])),
+                    }
                 except Exception as exc:  # noqa: BLE001
-                    st.error(f"Error: {exc}")
+                    st.session_state["sync_result"] = {
+                        "ok": False, "message": f"Error: {exc}", "errors": []}
+        st.rerun()
 
     if st.button("🎲 Cargar datos demo", width="stretch"):
         if storage.has_data():
@@ -150,6 +172,22 @@ with st.sidebar:
     if st.button("🗑️ Reiniciar datos", width="stretch"):
         storage.reset_db()
         st.rerun()
+
+    with st.expander("🔧 Diagnóstico de conexión"):
+        if st.button("Probar base + Apify", width="stretch"):
+            d = storage.diagnose()
+            st.write(f"**Backend:** {d['backend']}")
+            st.write(f"**IG_USERNAME configurado:** {'✅' if d['username_configurado'] else '❌'}")
+            st.write(f"**Escritura:** {'✅' if d['write_ok'] else '❌'} · "
+                     f"**Lectura:** {'✅' if d['read_ok'] else '❌'}")
+            if d.get("error"):
+                st.error(str(d["error"])[:600])
+            try:
+                from apify import InstagramSource
+                items = InstagramSource(config.APIFY_TOKEN).fetch_profile()
+                st.success(f"Apify OK · {len(items)} resultado(s)")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Apify falló: {exc}")
 
     st.divider()
     st.caption("Datos acumulados localmente en `data/instagram_monitor.db`.")

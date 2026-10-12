@@ -31,6 +31,26 @@ def _connect():
     return conn
 
 
+_LAST_REMOTE_ERROR = None
+
+
+def _sync(conn) -> None:
+    """Sincroniza la réplica con la nube (solo libsql) y guarda el error."""
+    global _LAST_REMOTE_ERROR
+    sync_fn = getattr(conn, "sync", None)
+    if sync_fn is None:
+        return
+    try:
+        sync_fn()
+        _LAST_REMOTE_ERROR = None
+    except Exception as exc:  # noqa: BLE001
+        _LAST_REMOTE_ERROR = str(exc)
+
+
+def last_remote_error():
+    return _LAST_REMOTE_ERROR
+
+
 def _connect_remote():
     """Conexión a una base libSQL (Turso) usando una réplica local efímera."""
     try:
@@ -46,20 +66,51 @@ def _connect_remote():
         sync_url=config.DATABASE_URL,
         auth_token=config.DATABASE_AUTH_TOKEN or None,
     )
-    try:
-        conn.sync()  # trae el estado más reciente desde la nube
-    except Exception:  # noqa: BLE001
-        pass
+    _sync(conn)  # trae el estado más reciente desde la nube
     return conn
 
 
 def _close(conn) -> None:
-    """Commit + sync (si es remoto) + cierre, de forma tolerante."""
-    for fn in ("commit", "sync", "close"):
-        try:
-            getattr(conn, fn)()
-        except Exception:  # noqa: BLE001
-            pass
+    """Commit + sync (si es remoto) + cierre, registrando errores."""
+    try:
+        conn.commit()
+    except Exception:  # noqa: BLE001
+        pass
+    _sync(conn)
+    try:
+        conn.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def diagnose() -> dict:
+    """Prueba escritura + lectura contra la base activa (para depurar)."""
+    result = {
+        "backend": "libsql (Turso)" if config.DATABASE_URL else "sqlite local",
+        "username_configurado": bool(config.USERNAME),
+        "write_ok": False,
+        "read_ok": False,
+        "error": None,
+    }
+    try:
+        init_db()
+        marker = utcnow()
+        conn = _connect()
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS _diag"
+            " (id INTEGER PRIMARY KEY AUTOINCREMENT, marker TEXT)"
+        )
+        conn.execute("INSERT INTO _diag(marker) VALUES (?)", (marker,))
+        _close(conn)
+        rows = _rows("SELECT marker FROM _diag ORDER BY id DESC LIMIT 1")
+        result["write_ok"] = True
+        result["read_ok"] = bool(rows) and rows[0].get("marker") == marker
+    except Exception as exc:  # noqa: BLE001
+        result["error"] = str(exc)
+    if not result["error"]:
+        result["error"] = _LAST_REMOTE_ERROR
+    return result
+
 
 
 _SCHEMA = """
