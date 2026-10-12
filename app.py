@@ -24,6 +24,8 @@ st.set_page_config(
 
 def load_all() -> Dict[str, Any]:
     storage.init_db()
+    if not storage.get_watchlist():
+        storage.add_watch_accounts(config.WATCHLIST)
     history = storage.get_profile_history()
     latest = history[-1] if history else None
     prev = history[-2] if len(history) >= 2 else None
@@ -297,6 +299,109 @@ c3.metric("Publicaciones", f"{kpis['posts']:,}")
 c4.metric("Likes promedio", f"{kpis['avg_likes']:,.1f}")
 c5.metric("Comentarios prom.", f"{kpis['avg_comments']:,.1f}")
 c6.metric("Engagement rate", f"{kpis['avg_engagement_rate']:.2f}%")
+
+st.divider()
+
+# --- Cuentas destacadas (watchlist) ------------------------------------------
+
+st.subheader("⭐ Cuentas destacadas")
+watch = storage.get_watchlist()
+if watch:
+    watch_tabs = st.tabs([f"@{w['username']}" for w in watch])
+    for wtab, w in zip(watch_tabs, watch):
+        with wtab:
+            rep = analytics.account_report(
+                data["relation_history"], data["events"], posts,
+                data["comments"], data["mentions"], data["profiles"], w["username"])
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Te sigue", "✅" if rep["is_follower"] else "❌")
+            c2.metric("La sigues", "✅" if rep["is_following"] else "❌")
+            c3.metric("Señales totales", rep["total_signals"])
+            c4.metric("Fotos donde aparece", rep["snapshots"])
+            st.markdown(
+                f"**@{config.mask(rep['username'])}**"
+                + (f" · {config.mask(rep['full_name'])}" if rep.get("full_name") else "")
+                + (f" · 🏷️ {rep['category']}" if rep.get("category") else "")
+                + f" · 🔗 {config.mask(rep['profile_url'])}"
+            )
+            if rep.get("biography"):
+                st.caption(config.mask(rep["biography"]))
+            s1, s2, s3 = st.columns(3)
+            s1.metric("La mencionas", len(rep["my_mentions"]))
+            s2.metric("Te menciona", len(rep["their_mentions"]))
+            s3.metric("Te comenta", len(rep["their_comments"]))
+            if rep.get("enriched"):
+                e1, e2, e3, e4 = st.columns(4)
+                e1.metric("Seguidores", f"{rep['profile_followers']:,}"
+                          if rep.get("profile_followers") else "—")
+                e2.metric("Publicaciones", f"{rep['profile_posts']:,}"
+                          if rep.get("profile_posts") else "—")
+                e3.metric("Verificada", "✅" if rep.get("verified") else "❌")
+                e4.metric("Privada", "🔒" if rep.get("private") else "—")
+                if rep.get("latest_posts"):
+                    st.markdown("**Sus últimos posts**")
+                    st.dataframe([{
+                        "Fecha": (post.get("timestamp") or "")[:10],
+                        "Tipo": post.get("type") or "",
+                        "Caption": config.mask((post.get("caption") or "").replace("\n", " ")[:100]),
+                        "Likes": post.get("likesCount"),
+                        "URL": post.get("url") or "",
+                    } for post in rep["latest_posts"][:12]], width="stretch", hide_index=True)
+            else:
+                st.caption("Sin datos de perfil todavía: pulsa «Enriquecer destacadas (Apify)» "
+                           "para traer su bio, seguidores y sus últimos posts.")
+            if rep["timeline"]:
+                timeline_labels = {
+                    "new_follower": "🟢 Te empezó a seguir",
+                    "lost_follower": "🔻 Te dejó de seguir",
+                    "new_following": "🟢 La empezaste a seguir",
+                    "lost_following": "🔻 Dejaste de seguir",
+                    "yo_la_menciono": "📣 La mencionaste",
+                    "me_menciona": "🏷️ Te mencionó",
+                    "me_comenta": "💬 Te comentó",
+                }
+                st.dataframe([{
+                    "Fecha": t["date"],
+                    "Señal": timeline_labels.get(t["what"], t["what"]),
+                    "Detalle": config.mask(t["detail"]),
+                } for t in rep["timeline"]], width="stretch", hide_index=True)
+            else:
+                st.caption("Sin señales registradas todavía. Sincroniza o usa «Enriquecer destacadas».")
+
+with st.expander("➕ Gestionar cuentas destacadas"):
+    add_name = st.text_input("Añadir cuenta (username, sin @)", "", key="watch_add")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("Añadir a destacadas", width="stretch"):
+            if add_name.strip():
+                storage.add_watch_accounts([add_name.strip()])
+                st.session_state["flash"] = {
+                    "ok": True, "message": f"Cuenta añadida: {add_name.strip()}", "errors": []}
+                st.rerun()
+    with col_b:
+        if st.button("Enriquecer destacadas (Apify)", width="stretch"):
+            if not config.APIFY_TOKEN:
+                st.session_state["flash"] = {
+                    "ok": False, "message": "Falta APIFY_TOKEN.", "errors": []}
+            else:
+                with st.spinner("Descargando perfiles…"):
+                    try:
+                        from apify import InstagramSource
+                        items = InstagramSource(config.APIFY_TOKEN).fetch_profiles(
+                            [w["username"] for w in watch])
+                        n = storage.save_account_profiles(items)
+                        st.session_state["flash"] = {
+                            "ok": True, "message": f"Perfiles actualizados: {n}", "errors": []}
+                    except Exception as exc:  # noqa: BLE001
+                        st.session_state["flash"] = {
+                            "ok": False, "message": f"Error: {exc}", "errors": []}
+            st.rerun()
+    if watch:
+        remove_name = st.selectbox("Quitar de destacadas",
+                                   [w["username"] for w in watch], key="watch_rm")
+        if st.button("Quitar cuenta", width="stretch"):
+            storage.remove_watch_account(remove_name)
+            st.rerun()
 
 st.divider()
 

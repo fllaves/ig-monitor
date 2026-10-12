@@ -96,6 +96,13 @@ TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = _get("TELEGRAM_CHAT_ID", "").strip()
 ALERT_VIEWS_THRESHOLD = _int("ALERT_VIEWS_THRESHOLD", 0)
 
+# --- Cuentas destacadas (watchlist) ------------------------------------------
+# Se siembran la primera vez; luego puedes añadir/quitar desde el panel.
+WATCHLIST = [u.strip().lstrip("@") for u in _get(
+    "WATCHLIST",
+    "PP,BC,F,JU,DRZ",
+).split(",") if u.strip()]
+
 # --- Almacenamiento ----------------------------------------------------------
 # Base local por defecto. Si defines DATABASE_URL (libsql://... de Turso),
 # los datos se guardan en la nube (persistente en Streamlit Cloud).

@@ -6,6 +6,7 @@ opcional para poder ejecutar la lógica pura sin él.
 """
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -446,7 +447,81 @@ def account_card(history: List[Dict], events: List[Dict], profiles: Dict[str, Di
         "snapshots": len({h["captured_at"] for h in rows}),
         "events": sorted(evs, key=lambda e: e.get("detected_at") or "", reverse=True),
         "profile_url": f"https://www.instagram.com/{username}/",
+        "enriched": bool(prof),
+        "profile_followers": prof.get("followers_count"),
+        "profile_posts": prof.get("posts_count"),
+        "verified": bool(prof.get("is_verified")) if prof else None,
+        "private": bool(prof.get("is_private")) if prof else None,
+        "latest_posts": _parse_latest(prof.get("latest_posts_json")),
     }
+
+
+def _parse_latest(value) -> List[Dict]:
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+        return data if isinstance(data, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
+def account_report(history: List[Dict], events: List[Dict], posts: List[Dict],
+                   comments: List[Dict], mentions: List[Dict],
+                   profiles: Dict[str, Dict], identifier: str) -> Dict[str, Any]:
+    """Ficha completa con TODAS las señales sociales disponibles de una cuenta."""
+    key = str(identifier).strip().lstrip("@").lower()
+    card = account_card(history, events, profiles, identifier)
+
+    my_mentions = []
+    for p in posts or []:
+        tags = [(m or "").strip().lstrip("@").lower() for m in (p.get("mentions") or [])]
+        if key in tags:
+            my_mentions.append({
+                "date": (p.get("timestamp") or "")[:10],
+                "text": (p.get("caption") or "").replace("\n", " ")[:160],
+                "url": p.get("url") or "",
+            })
+
+    their_mentions = []
+    for m in mentions or []:
+        if (m.get("owner_username") or "").strip().lower() == key:
+            their_mentions.append({
+                "date": (m.get("timestamp") or "")[:10],
+                "text": (m.get("caption") or "").replace("\n", " ")[:160],
+                "url": m.get("url") or "",
+            })
+
+    their_comments = []
+    for c in comments or []:
+        if (c.get("owner_username") or "").strip().lower() == key:
+            their_comments.append({
+                "date": (c.get("timestamp") or "")[:10],
+                "text": (c.get("text") or "").replace("\n", " ")[:160],
+                "post": c.get("post_id") or "",
+            })
+
+    timeline = []
+    for e in card["events"]:
+        timeline.append({"date": (e.get("detected_at") or "")[:10],
+                         "what": e.get("event_type"), "detail": ""})
+    for m in my_mentions:
+        timeline.append({"date": m["date"], "what": "yo_la_menciono", "detail": m["text"]})
+    for m in their_mentions:
+        timeline.append({"date": m["date"], "what": "me_menciona", "detail": m["text"]})
+    for c in their_comments:
+        timeline.append({"date": c["date"], "what": "me_comenta", "detail": c["text"]})
+    timeline.sort(key=lambda x: x["date"] or "", reverse=True)
+
+    card.update({
+        "my_mentions": my_mentions,
+        "their_mentions": their_mentions,
+        "their_comments": their_comments,
+        "timeline": timeline,
+        "total_signals": (len(card["events"]) + len(my_mentions)
+                          + len(their_mentions) + len(their_comments)),
+    })
+    return card
 
 
 # --- Historial de interacciones ----------------------------------------------

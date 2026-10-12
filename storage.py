@@ -235,7 +235,17 @@ CREATE TABLE IF NOT EXISTS account_profiles (
     category     TEXT,
     is_verified  INTEGER DEFAULT 0,
     is_private   INTEGER DEFAULT 0,
+    followers_count   INTEGER,
+    follows_count     INTEGER,
+    posts_count       INTEGER,
+    latest_posts_json TEXT,
     fetched_at   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS watchlist (
+    username_key TEXT PRIMARY KEY,
+    username     TEXT,
+    added_at     TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_relation_events_detected ON relation_events(detected_at DESC);
@@ -248,12 +258,42 @@ def init_db() -> None:
     conn = _connect()
     conn.executescript(_SCHEMA)
     _close(conn)
+    _migrate()
+
+
+# Columnas añadidas después de la primera versión del esquema.
+_EXTRA_COLUMNS = {
+    "account_profiles": {
+        "followers_count": "INTEGER",
+        "follows_count": "INTEGER",
+        "posts_count": "INTEGER",
+        "latest_posts_json": "TEXT",
+    },
+}
+
+
+def _migrate() -> None:
+    """Añade columnas nuevas a tablas ya existentes (sin perder datos)."""
+    conn = _connect()
+    for table, cols in _EXTRA_COLUMNS.items():
+        try:
+            existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        except Exception:  # noqa: BLE001
+            continue
+        for col, typ in cols.items():
+            if col not in existing:
+                try:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+                except Exception:  # noqa: BLE001
+                    pass
+    _close(conn)
 
 
 def reset_db() -> None:
     """Borra todos los datos y deja el esquema vacío listo para usar."""
     conn = _connect()
     conn.executescript(
+        "DROP TABLE IF EXISTS watchlist;"
         "DROP TABLE IF EXISTS account_profiles;"
         "DROP TABLE IF EXISTS relation_events;"
         "DROP TABLE IF EXISTS mentions;"
@@ -733,12 +773,14 @@ def save_account_profiles(items: Iterable[Dict[str, Any]],
             continue
         full_name = it.get("fullName")
         bio = it.get("biography")
+        latest = it.get("latestPosts") or []
         conn.execute(
             """
             INSERT INTO account_profiles(
                 username_key, username, full_name, biography, category,
-                is_verified, is_private, fetched_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                is_verified, is_private, followers_count, follows_count,
+                posts_count, latest_posts_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(username_key) DO UPDATE SET
                 username = excluded.username,
                 full_name = excluded.full_name,
@@ -746,6 +788,10 @@ def save_account_profiles(items: Iterable[Dict[str, Any]],
                 category = excluded.category,
                 is_verified = excluded.is_verified,
                 is_private = excluded.is_private,
+                followers_count = excluded.followers_count,
+                follows_count = excluded.follows_count,
+                posts_count = excluded.posts_count,
+                latest_posts_json = excluded.latest_posts_json,
                 fetched_at = excluded.fetched_at
             """,
             (
@@ -756,6 +802,10 @@ def save_account_profiles(items: Iterable[Dict[str, Any]],
                 category_for(username, full_name, bio),
                 1 if it.get("verified") else 0,
                 1 if it.get("private") else 0,
+                it.get("followersCount"),
+                it.get("followsCount"),
+                it.get("postsCount"),
+                json.dumps(latest, ensure_ascii=False) if latest else None,
                 captured_at,
             ),
         )
@@ -767,6 +817,36 @@ def save_account_profiles(items: Iterable[Dict[str, Any]],
 def get_account_profiles() -> Dict[str, Dict[str, Any]]:
     """Perfiles enriquecidos indexados por username_key (minúsculas)."""
     return {r["username_key"]: r for r in _rows("SELECT * FROM account_profiles")}
+
+
+# --- Cuentas destacadas (watchlist) ------------------------------------------
+
+def add_watch_accounts(usernames: Iterable[str]) -> int:
+    conn = _connect()
+    count = 0
+    for raw in usernames or []:
+        username = str(raw).strip().lstrip("@")
+        if not username:
+            continue
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO watchlist(username_key, username, added_at)"
+            " VALUES (?, ?, ?)",
+            (username.lower(), username, utcnow()),
+        )
+        count += cur.rowcount
+    _close(conn)
+    return count
+
+
+def remove_watch_account(username: str) -> None:
+    conn = _connect()
+    conn.execute("DELETE FROM watchlist WHERE username_key = ?",
+                 (str(username).strip().lstrip("@").lower(),))
+    _close(conn)
+
+
+def get_watchlist() -> List[Dict[str, Any]]:
+    return _rows("SELECT * FROM watchlist ORDER BY username ASC")
 
 
 def has_data() -> bool:
