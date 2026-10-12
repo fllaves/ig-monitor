@@ -43,6 +43,8 @@ def load_all() -> Dict[str, Any]:
         "mentions": storage.get_mentions(),
         "events": storage.get_relation_events(),
         "profiles": storage.get_account_profiles(),
+        "external_posts": storage.get_external_posts(),
+        "external_comments": storage.get_external_comments(),
     }
 
 
@@ -368,6 +370,40 @@ if watch:
             else:
                 st.caption("Sin señales registradas todavía. Sincroniza o usa «Enriquecer destacadas».")
 
+            wi = analytics.watch_interactions(
+                data["external_posts"], data["external_comments"],
+                data["comments"], w["username"], config.USERNAME)
+            st.markdown("#### 💬 Interacción en publicaciones")
+            wm1, wm2, wm3 = st.columns(3)
+            wm1.metric("Tú comentas sus posts", len(wi["my_comments_on_theirs"]))
+            wm2.metric("Ellos comentan tus posts", len(wi["their_comments_on_mine"]))
+            wm3.metric("Sus posts analizados", len(wi["their_posts"]))
+            if wi["my_comments_on_theirs"]:
+                st.markdown("**Tus comentarios en sus publicaciones**")
+                st.dataframe([{
+                    "Fecha": (c.get("timestamp") or "")[:10],
+                    "Comentario": config.mask(c.get("text") or ""),
+                    "Post": c.get("post_url") or "",
+                } for c in wi["my_comments_on_theirs"]], width="stretch", hide_index=True)
+            if wi["their_comments_on_mine"]:
+                st.markdown("**Sus comentarios en tus publicaciones**")
+                st.dataframe([{
+                    "Fecha": (c.get("timestamp") or "")[:10],
+                    "Comentario": config.mask(c.get("text") or ""),
+                } for c in wi["their_comments_on_mine"]], width="stretch", hide_index=True)
+            if wi["their_posts"]:
+                with st.expander(f"Ver sus publicaciones ({len(wi['their_posts'])})"):
+                    st.dataframe([{
+                        "Fecha": (p.get("timestamp") or "")[:10],
+                        "Caption": config.mask((p.get("caption") or "").replace("\n", " ")[:90]),
+                        "Likes": p.get("likes_count"),
+                        "Comentarios": p.get("comments_count"),
+                        "URL": p.get("url") or "",
+                    } for p in wi["their_posts"][:30]], width="stretch", hide_index=True)
+            if not (wi["my_comments_on_theirs"] or wi["their_comments_on_mine"] or wi["their_posts"]):
+                st.caption("Sin interacción descargada todavía → usa "
+                           "«🔄 Sincronizar interacciones» abajo.")
+
 with st.expander("➕ Gestionar cuentas destacadas"):
     add_name = st.text_input("Añadir cuenta (username, sin @)", "", key="watch_add")
     col_a, col_b = st.columns(2)
@@ -396,6 +432,28 @@ with st.expander("➕ Gestionar cuentas destacadas"):
                         st.session_state["flash"] = {
                             "ok": False, "message": f"Error: {exc}", "errors": []}
             st.rerun()
+    if st.button("🔄 Sincronizar interacciones (posts + comentarios)", width="stretch"):
+        if not config.APIFY_TOKEN:
+            st.session_state["flash"] = {
+                "ok": False, "message": "Falta APIFY_TOKEN.", "errors": []}
+        else:
+            with st.spinner("Descargando sus posts y comentarios… (puede tardar varios minutos)"):
+                try:
+                    from sync import do_watch_sync
+                    res = do_watch_sync(
+                        token=config.APIFY_TOKEN,
+                        accounts=[w["username"] for w in watch],
+                        posts_per_account=20, comments_per_post=20)
+                    st.session_state["flash"] = {
+                        "ok": True,
+                        "message": (f"Interacciones actualizadas: {res['posts']} posts y "
+                                    f"{res['comments']} comentarios de {res['accounts']} cuentas."),
+                        "errors": list(res.get("errors", [])),
+                    }
+                except Exception as exc:  # noqa: BLE001
+                    st.session_state["flash"] = {
+                        "ok": False, "message": f"Error: {exc}", "errors": []}
+        st.rerun()
     if watch:
         remove_name = st.selectbox("Quitar de destacadas",
                                    [w["username"] for w in watch], key="watch_rm")

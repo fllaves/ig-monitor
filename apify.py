@@ -178,3 +178,17 @@ class InstagramSource:
             timeout_secs=timeout_secs,
         )
         return [i for i in items if not i.get("error")]
+
+    def fetch_profiles_posts(self, usernames: List[str], limit: int = 20,
+                             timeout_secs: int = 1800) -> List[Dict]:
+        """Publicaciones recientes de varias cuentas (en una sola corrida)."""
+        urls = [f"https://www.instagram.com/{str(u).strip().lstrip('@')}/"
+                for u in usernames if u]
+        if not urls:
+            return []
+        items, _ = run_actor(
+            self.token,
+            {"resultsType": "posts", "directUrls": urls, "resultsLimit": limit},
+            timeout_secs=timeout_secs,
+        )
+        return [i for i in items if not i.get("error")]

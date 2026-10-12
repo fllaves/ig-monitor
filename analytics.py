@@ -524,6 +524,39 @@ def account_report(history: List[Dict], events: List[Dict], posts: List[Dict],
     return card
 
 
+def watch_interactions(external_posts: List[Dict], external_comments: List[Dict],
+                       my_post_comments: List[Dict], watched: str,
+                       me: str) -> Dict[str, Any]:
+    """Interacciones públicas entre 'me' y una cuenta destacada."""
+    w = str(watched).strip().lstrip("@").lower()
+    me_key = (me or "").strip().lstrip("@").lower()
+
+    def owner(row) -> str:
+        return (row.get("owner_username") or "").strip().lstrip("@").lower()
+
+    their_posts = [p for p in (external_posts or [])
+                   if (p.get("source_username") or "").strip().lower() == w]
+
+    ext = external_comments or []
+    my_comments_on_theirs = [c for c in ext
+                             if (c.get("source_username") or "").strip().lower() == w
+                             and owner(c) == me_key]
+    their_comments = [c for c in ext if owner(c) == w]
+    their_comments_on_mine = [c for c in (my_post_comments or []) if owner(c) == w]
+
+    dates = [(c.get("timestamp") or "") for c in (my_comments_on_theirs + their_comments_on_mine)
+             if c.get("timestamp")]
+    return {
+        "their_posts": their_posts,
+        "my_comments_on_theirs": my_comments_on_theirs,
+        "their_comments_on_mine": their_comments_on_mine,
+        "their_comments": their_comments,
+        "total": len(my_comments_on_theirs) + len(their_comments_on_mine) + len(their_comments),
+        "oldest": min(dates) if dates else "",
+        "newest": max(dates) if dates else "",
+    }
+
+
 # --- Historial de interacciones ----------------------------------------------
 
 def interaction_index(history: List[Dict], events: List[Dict], posts: List[Dict],

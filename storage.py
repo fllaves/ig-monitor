@@ -248,6 +248,34 @@ CREATE TABLE IF NOT EXISTS watchlist (
     added_at     TEXT
 );
 
+CREATE TABLE IF NOT EXISTS external_posts (
+    id              TEXT PRIMARY KEY,
+    source_username TEXT,
+    short_code      TEXT,
+    url             TEXT,
+    caption         TEXT,
+    timestamp       TEXT,
+    likes_count     INTEGER,
+    comments_count  INTEGER,
+    captured_at     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS external_comments (
+    id              TEXT PRIMARY KEY,
+    source_username TEXT,
+    post_id         TEXT,
+    post_url        TEXT,
+    owner_username  TEXT,
+    text            TEXT,
+    likes_count     INTEGER,
+    timestamp       TEXT,
+    captured_at     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ext_comments_source ON external_comments(source_username);
+CREATE INDEX IF NOT EXISTS idx_ext_comments_owner ON external_comments(owner_username);
+CREATE INDEX IF NOT EXISTS idx_ext_posts_source ON external_posts(source_username);
+
 CREATE INDEX IF NOT EXISTS idx_relation_events_detected ON relation_events(detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_mentions_captured ON mentions(captured_at);
@@ -293,6 +321,8 @@ def reset_db() -> None:
     """Borra todos los datos y deja el esquema vacío listo para usar."""
     conn = _connect()
     conn.executescript(
+        "DROP TABLE IF EXISTS external_comments;"
+        "DROP TABLE IF EXISTS external_posts;"
         "DROP TABLE IF EXISTS watchlist;"
         "DROP TABLE IF EXISTS account_profiles;"
         "DROP TABLE IF EXISTS relation_events;"
@@ -847,6 +877,81 @@ def remove_watch_account(username: str) -> None:
 
 def get_watchlist() -> List[Dict[str, Any]]:
     return _rows("SELECT * FROM watchlist ORDER BY username ASC")
+
+
+# --- Interacciones con cuentas externas (watchlist) --------------------------
+
+def _shortcode_from_url(url: str) -> str:
+    if not url:
+        return ""
+    for marker in ("/p/", "/reel/"):
+        if marker in url:
+            return url.split(marker)[-1].split("/")[0]
+    return ""
+
+
+def save_external_posts(items: Iterable[Dict[str, Any]], captured_at: str = None) -> int:
+    """Publicaciones de las cuentas destacadas (para ver qué publican)."""
+    captured_at = captured_at or utcnow()
+    conn = _connect()
+    count = 0
+    for p in items or []:
+        pid = str(p.get("id") or p.get("shortCode") or p.get("url") or "")
+        if not pid:
+            continue
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO external_posts(
+                id, source_username, short_code, url, caption,
+                timestamp, likes_count, comments_count, captured_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (pid, (p.get("ownerUsername") or "").lower(), p.get("shortCode"),
+             p.get("url"), p.get("caption"), p.get("timestamp"),
+             p.get("likesCount"), p.get("commentsCount"), captured_at),
+        )
+        count += 1
+    _close(conn)
+    return count
+
+
+def save_external_comments(items: Iterable[Dict[str, Any]], source_by_post: Dict[str, str] = None,
+                           captured_at: str = None) -> int:
+    """Comentarios de los posts de cuentas destacadas (incluye los que TÚ escribes)."""
+    captured_at = captured_at or utcnow()
+    source_by_post = source_by_post or {}
+    conn = _connect()
+    count = 0
+    for c in items or []:
+        cid = str(c.get("id") or "")
+        if not cid:
+            continue
+        post_url = c.get("postUrl") or ""
+        post_id = _shortcode_from_url(post_url)
+        source = (source_by_post.get(post_url)
+                  or source_by_post.get(post_id)
+                  or "")
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO external_comments(
+                id, source_username, post_id, post_url, owner_username,
+                text, likes_count, timestamp, captured_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (cid, str(source).lower(), post_id, post_url, c.get("ownerUsername"),
+             c.get("text"), c.get("likesCount"), c.get("timestamp"), captured_at),
+        )
+        count += 1
+    _close(conn)
+    return count
+
+
+def get_external_posts() -> List[Dict[str, Any]]:
+    return _rows("SELECT * FROM external_posts ORDER BY timestamp DESC")
+
+
+def get_external_comments() -> List[Dict[str, Any]]:
+    return _rows("SELECT * FROM external_comments ORDER BY timestamp DESC")
 
 
 def has_data() -> bool:

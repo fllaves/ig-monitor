@@ -118,6 +118,52 @@ def do_sync(token: str = "", limit: int = None, followers_limit: int = None,
     return summary
 
 
+def do_watch_sync(token: str = "", accounts: list = None,
+                  posts_per_account: int = 20, comments_per_post: int = 20,
+                  max_post_urls: int = 60) -> dict:
+    """Descarga posts + comentarios de las cuentas destacadas (Fase 1).
+
+    Con eso se reconstruye la interacción pública: comentarios que TÚ dejas en
+    sus posts, comentarios que ellos dejan, y qué publican.
+    """
+    storage.init_db()
+    accounts = accounts or [w["username"] for w in storage.get_watchlist()]
+    summary = {"accounts": len(accounts), "posts": 0, "comments": 0, "errors": []}
+    if not accounts:
+        summary["errors"].append("Sin cuentas destacadas.")
+        return summary
+
+    src = InstagramSource(token or config.APIFY_TOKEN)
+    captured_at = storage.utcnow()
+
+    posts = []
+    try:
+        posts = src.fetch_profiles_posts(accounts, limit=posts_per_account)
+        summary["posts"] = storage.save_external_posts(posts, captured_at)
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append(f"posts: {exc}")
+
+    source_by_post = {}
+    for p in posts:
+        owner = (p.get("ownerUsername") or "").lower()
+        if p.get("url"):
+            source_by_post[p["url"]] = owner
+        if p.get("shortCode"):
+            source_by_post[p["shortCode"]] = owner
+
+    urls = [p.get("url") for p in posts if p.get("url")][:max_post_urls]
+    if urls:
+        try:
+            comments = src.fetch_comments(urls, limit=comments_per_post)
+            summary["comments"] = storage.save_external_comments(
+                comments, source_by_post, captured_at)
+        except Exception as exc:  # noqa: BLE001
+            summary["errors"].append(f"comentarios: {exc}")
+
+    summary["message"] = "Interacciones de destacadas actualizadas."
+    return summary
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sincroniza el monitoreo de Instagram")
     parser.add_argument("--demo", action="store_true", help="usa datos de demostración")
