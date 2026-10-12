@@ -421,6 +421,67 @@ def save_relations(items: Iterable[Dict[str, Any]], relation_type: str,
     return count
 
 
+def save_relations_simple(usernames: Iterable[str], relation_type: str,
+                          captured_at: str) -> int:
+    """Guarda una lista de usernames (sin ID numérico) como snapshot histórico.
+
+    Se usa para importar exports/snapshots en los que solo hay nombres de usuario.
+    """
+    rtype = "follower" if relation_type in ("followers", "follower") else "following"
+    conn = _connect()
+    count = 0
+    for raw in usernames or []:
+        username = str(raw).strip().lstrip("@")
+        if not username:
+            continue
+        conn.execute(
+            """
+            INSERT INTO relation_history(
+                captured_at, user_id, relation_type, username,
+                full_name, profile_pic_url, is_verified, is_private
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (captured_at, username.lower(), rtype, username, None, None, 0, 0),
+        )
+        count += 1
+    _close(conn)
+    return count
+
+
+def import_snapshot(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Importa un snapshot histórico con formato {ts, followers[], following[]}.
+
+    `ts` puede venir en milisegundos o segundos. Las listas aceptan tanto
+    strings (usernames) como objetos con la clave `username`.
+    """
+    init_db()
+    ts = payload.get("ts")
+    if isinstance(ts, (int, float)) and ts > 0:
+        seconds = ts / 1000 if ts > 10_000_000_000 else ts
+        captured_at = datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat()
+    else:
+        captured_at = utcnow()
+
+    def names(items) -> List[str]:
+        seen = set()
+        out = []
+        for it in items or []:
+            if isinstance(it, dict):
+                u = it.get("username") or it.get("userName") or it.get("user") or ""
+            else:
+                u = str(it)
+            u = str(u).strip().lstrip("@")
+            key = u.lower()
+            if u and key not in seen:
+                seen.add(key)
+                out.append(u)
+        return out
+
+    nf = save_relations_simple(names(payload.get("followers")), "follower", captured_at)
+    ng = save_relations_simple(names(payload.get("following")), "following", captured_at)
+    return {"captured_at": captured_at, "followers": nf, "following": ng}
+
+
 # --- Lectura -----------------------------------------------------------------
 
 def _rows(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:

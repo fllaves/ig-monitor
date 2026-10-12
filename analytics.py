@@ -158,6 +158,16 @@ def top_posts(posts: List[Dict], n: int = 10, metric: str = "likes") -> List[Dic
 
 # --- Seguidores / seguidos ----------------------------------------------------
 
+def _rel_key(row: Dict) -> str:
+    """Clave de identidad para comparar listas de distinta fuente.
+
+    Empareja por username (en minúsculas), que es lo único que comparten el
+    snapshot histórico y los datos de Apify; si no hay username, usa user_id.
+    """
+    username = (row.get("username") or "").strip().lower()
+    return username or str(row.get("user_id") or "")
+
+
 def relation_counts_series(history: List[Dict]) -> List[Dict]:
     """Tamaño de las listas de seguidores y seguidos en cada fecha capturada."""
     dates = sorted({h["captured_at"] for h in history})
@@ -181,13 +191,14 @@ def relation_delta(history: List[Dict], relation_type: str) -> Optional[Dict[str
         return None
 
     prev_date, latest_date = dates[-2], dates[-1]
-    prev_ids = {h["user_id"] for h in rows if h["captured_at"] == prev_date}
-    latest_ids = {h["user_id"] for h in rows if h["captured_at"] == latest_date}
+    prev_ids = {_rel_key(h) for h in rows if h["captured_at"] == prev_date}
+    latest_ids = {_rel_key(h) for h in rows if h["captured_at"] == latest_date}
 
     info: Dict[str, Dict] = {}
     for h in rows:
-        if h["user_id"] not in info:
-            info[h["user_id"]] = h
+        key = _rel_key(h)
+        if key not in info:
+            info[key] = h
 
     def describe(uid: str) -> Dict[str, Any]:
         h = info.get(uid, {})
@@ -247,13 +258,14 @@ def relation_members(history: List[Dict], relation_type: str) -> List[Dict]:
     if not dates:
         return []
     latest = dates[-1]
-    current_ids = {h["user_id"] for h in rows if h["captured_at"] == latest}
+    current_ids = {_rel_key(h) for h in rows if h["captured_at"] == latest}
 
     members: Dict[str, Dict] = {}
     for h in rows:
-        if h["user_id"] not in current_ids:
+        key = _rel_key(h)
+        if key not in current_ids:
             continue
-        m = members.setdefault(h["user_id"], dict(h))
+        m = members.setdefault(key, dict(h))
         m["first_seen"] = min(m.get("first_seen") or h["captured_at"], h["captured_at"])
         m["last_seen"] = max(m.get("last_seen") or h["captured_at"], h["captured_at"])
         m["is_verified"] = bool(m.get("is_verified"))
@@ -268,12 +280,12 @@ def relation_members(history: List[Dict], relation_type: str) -> List[Dict]:
 
 def compute_mutuals(relation_history: List[Dict]) -> Dict[str, List[Dict]]:
     """Cruza seguidores y seguidos para hallar mutuos y no recíprocos."""
-    followers = {m["user_id"] for m in relation_members(relation_history, "follower")}
-    following = {m["user_id"] for m in relation_members(relation_history, "following")}
+    followers = {_rel_key(m) for m in relation_members(relation_history, "follower")}
+    following = {_rel_key(m) for m in relation_members(relation_history, "following")}
 
     info: Dict[str, Dict] = {}
     for h in relation_history:
-        info.setdefault(h["user_id"], h)
+        info.setdefault(_rel_key(h), h)
 
     def describe(uid: str) -> Dict[str, Any]:
         h = info.get(uid, {})

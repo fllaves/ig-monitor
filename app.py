@@ -3,6 +3,7 @@
 Ejecutar con:
     streamlit run app.py
 """
+import json
 from typing import Any, Dict, List, Optional
 
 import streamlit as st
@@ -104,14 +105,14 @@ with st.sidebar:
     if not config.USERNAME:
         st.error("Falta `IG_USERNAME` en los secretos (o `.env`).")
 
-    # Resultado de la última sincronización (sobrevive al rerun)
-    last_sync = st.session_state.pop("sync_result", None)
-    if last_sync:
-        if last_sync.get("ok"):
-            st.success(last_sync["message"])
+    # Mensaje de la última acción (sobrevive al rerun)
+    last_flash = st.session_state.pop("flash", None)
+    if last_flash:
+        if last_flash.get("ok"):
+            st.success(last_flash["message"])
         else:
-            st.error(last_sync["message"])
-        for err_line in last_sync.get("errors", []):
+            st.error(last_flash["message"])
+        for err_line in last_flash.get("errors", []):
             st.warning(f"⚠ {err_line}")
 
     st.divider()
@@ -132,10 +133,10 @@ with st.sidebar:
 
     if st.button("🔄 Sincronizar con Apify", width="stretch"):
         if not config.APIFY_TOKEN:
-            st.session_state["sync_result"] = {
+            st.session_state["flash"] = {
                 "ok": False, "message": "Falta APIFY_TOKEN en los secretos.", "errors": []}
         elif not config.USERNAME:
-            st.session_state["sync_result"] = {
+            st.session_state["flash"] = {
                 "ok": False,
                 "message": "Falta IG_USERNAME en los secretos (o en `.env`).",
                 "errors": []}
@@ -147,7 +148,7 @@ with st.sidebar:
                         followers_limit=int(followers_limit),
                         following_limit=int(following_limit),
                     )
-                    st.session_state["sync_result"] = {
+                    st.session_state["flash"] = {
                         "ok": True,
                         "message": (
                             f"{result['message']} · {result['posts']} posts · "
@@ -157,7 +158,7 @@ with st.sidebar:
                         "errors": list(result.get("errors", [])),
                     }
                 except Exception as exc:  # noqa: BLE001
-                    st.session_state["sync_result"] = {
+                    st.session_state["flash"] = {
                         "ok": False, "message": f"Error: {exc}", "errors": []}
         st.rerun()
 
@@ -188,6 +189,26 @@ with st.sidebar:
                 st.success(f"Apify OK · {len(items)} resultado(s)")
             except Exception as exc:  # noqa: BLE001
                 st.error(f"Apify falló: {exc}")
+
+    with st.expander("📥 Importar snapshot histórico (JSON)"):
+        st.caption("Sube un export de seguidores/seguidos (p. ej. tu snapshot de octubre).")
+        up = st.file_uploader("Archivo .json", type=["json"], key="snapshot_up")
+        if up is not None and st.button("Importar snapshot", width="stretch"):
+            try:
+                payload = json.loads(up.getvalue().decode("utf-8"))
+                res = storage.import_snapshot(payload)
+                st.session_state["flash"] = {
+                    "ok": True,
+                    "message": (
+                        f"Snapshot importado ({res['captured_at'][:10]}): "
+                        f"{res['followers']} seguidores · {res['following']} seguidos"
+                    ),
+                    "errors": [],
+                }
+            except Exception as exc:  # noqa: BLE001
+                st.session_state["flash"] = {
+                    "ok": False, "message": f"Error al importar: {exc}", "errors": []}
+            st.rerun()
 
     st.divider()
     st.caption("Datos acumulados localmente en `data/instagram_monitor.db`.")
@@ -296,8 +317,9 @@ if not followers_members and not following_members:
     st.info("Aún no hay listas de seguidores/seguidos. Sincroniza con Apify o carga datos demo.")
 else:
     st.caption(
-        "ℹ️ El plan gratuito de Apify devuelve solo la **primera página** de cada lista "
-        "(~20 cuentas, las más recientes). Para la lista completa de seguidores necesitas un plan de pago."
+        "ℹ️ El plan gratuito de Apify devuelve solo la **primera página** de cada lista. "
+        "Si importas un snapshot histórico más completo (p. ej. tu export de octubre), "
+        "las **bajas** al comparar listas de distinto alcance pueden ser un artefacto del muestreo."
     )
 
     k1, k2, k3, k4, k5, k6 = st.columns(6)
