@@ -17,6 +17,15 @@ local (SQLite) y muestra tendencias, KPIs y análisis de engagement.
 - **Detecta cambios entre sincronizaciones**: quién te dejó de seguir, a quién
   dejaste de seguir, nuevos seguidores y nuevos seguidos, con un **historial
   persistente** de cada evento (quién y cuándo).
+- **Retención y churn**: de las cuentas de la primera foto, cuántas siguen;
+  cuentas "serial follow/unfollow"; vueltas a seguir (baja → alta) y picos
+  anómalos de bajas.
+- **Categorías**: clasifica a quién sigues y quién te sigue (comics, tecnología,
+  música, deporte…) con enriquecimiento opcional de bios vía Apify.
+- **Ficha 360 por cuenta**: todo lo que sabemos de una cuenta concreta (te sigue,
+  la sigues, desde cuándo, historial de cambios, categoría, bio).
+- **Recomendador de limpieza**: cuentas que sigues y no te siguen de vuelta.
+- **Importar snapshots históricos** (JSON) para incorporar datos anteriores a Apify.
 - **Seguidores mutuos (mutuals)**: cruza ambas listas para ver quién te sigue y
   no sigues de vuelta, y viceversa.
 - **Calidad de audiencia**: % de seguidores verificados/privados y detección de

@@ -309,6 +309,153 @@ def compute_mutuals(relation_history: List[Dict]) -> Dict[str, List[Dict]]:
     }
 
 
+# --- Categorías --------------------------------------------------------------
+
+def category_distribution(members: List[Dict], profiles: Dict[str, Dict],
+                          top_n: int = 20) -> List[Dict]:
+    """Cuenta miembros por categoría (perfil enriquecido o heurística)."""
+    from categorize import category_for
+
+    counts: Counter = Counter()
+    for m in members:
+        key = _rel_key(m)
+        prof = profiles.get(key) or {}
+        cat = prof.get("category")
+        if not cat:
+            cat = category_for(m.get("username"), m.get("full_name"))
+        counts[cat] += 1
+    return [{"category": k, "count": v} for k, v in counts.most_common(top_n)]
+
+
+# --- Retención y churn -------------------------------------------------------
+
+def follow_retention(history: List[Dict], relation_type: str = "following") -> Optional[Dict]:
+    """De las cuentas de la PRIMERA foto, cuántas siguen en la ÚLTIMA."""
+    rows = [h for h in history if h["relation_type"] == relation_type]
+    dates = sorted({h["captured_at"] for h in rows})
+    if len(dates) < 2:
+        return None
+    first, latest = dates[0], dates[-1]
+    first_ids = {_rel_key(h) for h in rows if h["captured_at"] == first}
+    latest_ids = {_rel_key(h) for h in rows if h["captured_at"] == latest}
+    retained = len(first_ids & latest_ids)
+    return {
+        "relation_type": relation_type,
+        "first_date": first,
+        "latest_date": latest,
+        "first_count": len(first_ids),
+        "latest_count": len(latest_ids),
+        "retained": retained,
+        "dropped": len(first_ids - latest_ids),
+        "added": len(latest_ids - first_ids),
+        "retention_pct": round(retained / len(first_ids) * 100, 1) if first_ids else 0.0,
+    }
+
+
+def _events_by_account(events: List[Dict]) -> Dict[str, List[Dict]]:
+    grouped: Dict[str, List[Dict]] = {}
+    for e in events or []:
+        key = (e.get("username") or "").strip().lower() or str(e.get("user_id") or "")
+        if key:
+            grouped.setdefault(key, []).append(e)
+    return grouped
+
+
+def relation_churn(events: List[Dict], min_events: int = 2) -> List[Dict]:
+    """Cuentas con más movimiento (serial follow/unfollow)."""
+    out = []
+    for key, evs in _events_by_account(events).items():
+        lost = [e for e in evs if str(e.get("event_type", "")).startswith("lost")]
+        new = [e for e in evs if str(e.get("event_type", "")).startswith("new")]
+        if len(evs) < min_events and not (lost and new):
+            continue
+        out.append({
+            "username": evs[-1].get("username") or key,
+            "full_name": evs[-1].get("full_name"),
+            "lost_count": len(lost),
+            "new_count": len(new),
+            "total": len(evs),
+            "last_event": max((e.get("detected_at") or "") for e in evs),
+        })
+    out.sort(key=lambda x: (-x["total"], x["username"] or ""))
+    return out
+
+
+def re_follows(events: List[Dict]) -> List[Dict]:
+    """Cuentas con patrón baja → alta (volviste a seguir / te volvió a seguir)."""
+    out = []
+    for key, evs in _events_by_account(events).items():
+        ordered = sorted(evs, key=lambda e: e.get("detected_at") or "")
+        seen_lost = False
+        cycle = False
+        for e in ordered:
+            t = str(e.get("event_type", ""))
+            if t.startswith("lost"):
+                seen_lost = True
+            elif t.startswith("new") and seen_lost:
+                cycle = True
+        if cycle:
+            out.append({
+                "username": ordered[-1].get("username") or key,
+                "full_name": ordered[-1].get("full_name"),
+                "eventos": len(ordered),
+                "ultimo": ordered[-1].get("detected_at"),
+            })
+    out.sort(key=lambda x: x.get("ultimo") or "", reverse=True)
+    return out
+
+
+def unfollow_anomalies(events: List[Dict]) -> List[Dict]:
+    """Bajas por fecha, marcando picos anómalos."""
+    lost = [e for e in events or [] if str(e.get("event_type", "")).startswith("lost")]
+    by_date = Counter((e.get("detected_at") or "")[:10] for e in lost)
+    if not by_date:
+        return []
+    values = list(by_date.values())
+    avg = sum(values) / len(values)
+    rows = [{"date": d, "count": c,
+             "is_spike": c > max(5, avg * 2)} for d, c in sorted(by_date.items())]
+    return rows
+
+
+# --- Ficha 360 ---------------------------------------------------------------
+
+def account_card(history: List[Dict], events: List[Dict], profiles: Dict[str, Dict],
+                 identifier: str) -> Dict[str, Any]:
+    """Todo lo que sabemos de una cuenta concreta."""
+    key = str(identifier).strip().lstrip("@").lower()
+    followers = {_rel_key(m) for m in relation_members(history, "follower")}
+    following = {_rel_key(m) for m in relation_members(history, "following")}
+    rows = [h for h in history if _rel_key(h) == key]
+    info = rows[-1] if rows else {}
+    prof = profiles.get(key) or {}
+    evs = [e for e in (events or [])
+           if (e.get("username") or "").strip().lower() == key]
+    username = info.get("username") or prof.get("username") or identifier
+
+    return {
+        "username": username,
+        "full_name": info.get("full_name") or prof.get("full_name"),
+        "biography": prof.get("biography"),
+        "category": prof.get("category"),
+        "is_follower": key in followers,
+        "is_following": key in following,
+        "mutual": key in followers and key in following,
+        "first_seen": min((h["captured_at"] for h in rows), default=None),
+        "last_seen": max((h["captured_at"] for h in rows), default=None),
+        "snapshots": len({h["captured_at"] for h in rows}),
+        "events": sorted(evs, key=lambda e: e.get("detected_at") or "", reverse=True),
+        "profile_url": f"https://www.instagram.com/{username}/",
+    }
+
+
+# --- Limpieza ----------------------------------------------------------------
+
+def cleaning_suggestions(relation_history: List[Dict]) -> List[Dict]:
+    """Cuentas que sigues y no te siguen de vuelta (candidatas a limpiar)."""
+    return compute_mutuals(relation_history)["not_followed_back"]
+
+
 # --- Calidad de audiencia ----------------------------------------------------
 
 def audience_quality(members: List[Dict]) -> Dict[str, Any]:
@@ -579,4 +726,41 @@ def fig_sentiment(stats: Dict[str, Any]) -> go.Figure:
         textinfo="label+percent",
     ))
     fig.update_layout(title="Sentimiento de comentarios", margin=dict(t=40, b=20), template="plotly_white")
+    return fig
+
+
+def fig_categories(data: List[Dict], top_n: int = 12) -> go.Figure:
+    """Donut de categorías de las cuentas."""
+    _need_plotly()
+    rows = data[:top_n]
+    labels = [d["category"] for d in rows]
+    values = [d["count"] for d in rows]
+    fig = go.Figure(go.Pie(
+        labels=labels, values=values, hole=0.45,
+        marker=dict(colors=(PALETTE * 3)[:len(labels)]),
+        textinfo="label+percent",
+    ))
+    fig.update_layout(title="Categorías de las cuentas",
+                      margin=dict(t=40, b=20), template="plotly_white")
+    return fig
+
+
+def fig_retention(retentions: List[Dict]) -> go.Figure:
+    """Barras de retención (se mantienen / se perdieron / nuevas)."""
+    _need_plotly()
+    labels, retained, dropped, added = [], [], [], []
+    for r in retentions:
+        labels.append("Seguidores" if r["relation_type"] == "follower" else "Seguidos")
+        retained.append(r["retained"])
+        dropped.append(-r["dropped"])
+        added.append(r["added"])
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=labels, y=retained, name="Se mantienen", marker_color=GREEN))
+    fig.add_trace(go.Bar(x=labels, y=dropped, name="Se perdieron", marker_color=RED))
+    fig.add_trace(go.Bar(x=labels, y=added, name="Nuevas", marker_color=DEFAULT_COLOR))
+    fig.update_layout(
+        title="Retención entre la primera y la última foto",
+        barmode="relative", yaxis_title="Cuentas",
+        margin=dict(t=40, b=40), template="plotly_white",
+    )
     return fig

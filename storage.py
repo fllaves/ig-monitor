@@ -227,6 +227,17 @@ CREATE TABLE IF NOT EXISTS mentions (
     raw_json       TEXT
 );
 
+CREATE TABLE IF NOT EXISTS account_profiles (
+    username_key TEXT PRIMARY KEY,
+    username     TEXT,
+    full_name    TEXT,
+    biography    TEXT,
+    category     TEXT,
+    is_verified  INTEGER DEFAULT 0,
+    is_private   INTEGER DEFAULT 0,
+    fetched_at   TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_relation_events_detected ON relation_events(detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_mentions_captured ON mentions(captured_at);
@@ -243,6 +254,7 @@ def reset_db() -> None:
     """Borra todos los datos y deja el esquema vacío listo para usar."""
     conn = _connect()
     conn.executescript(
+        "DROP TABLE IF EXISTS account_profiles;"
         "DROP TABLE IF EXISTS relation_events;"
         "DROP TABLE IF EXISTS mentions;"
         "DROP TABLE IF EXISTS comments;"
@@ -703,6 +715,58 @@ def save_mentions(items: Iterable[Dict[str, Any]], captured_at: str) -> int:
 
 def get_mentions() -> List[Dict[str, Any]]:
     return _rows("SELECT * FROM mentions ORDER BY timestamp DESC")
+
+
+# --- Perfiles enriquecidos (para categorizar) --------------------------------
+
+def save_account_profiles(items: Iterable[Dict[str, Any]],
+                          captured_at: Optional[str] = None) -> int:
+    """Guarda datos de perfil (bio, categoría…) de cuentas concretas."""
+    from categorize import category_for
+
+    captured_at = captured_at or utcnow()
+    conn = _connect()
+    count = 0
+    for it in items or []:
+        username = (it.get("username") or "").strip().lstrip("@")
+        if not username:
+            continue
+        full_name = it.get("fullName")
+        bio = it.get("biography")
+        conn.execute(
+            """
+            INSERT INTO account_profiles(
+                username_key, username, full_name, biography, category,
+                is_verified, is_private, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(username_key) DO UPDATE SET
+                username = excluded.username,
+                full_name = excluded.full_name,
+                biography = excluded.biography,
+                category = excluded.category,
+                is_verified = excluded.is_verified,
+                is_private = excluded.is_private,
+                fetched_at = excluded.fetched_at
+            """,
+            (
+                username.lower(),
+                username,
+                full_name,
+                bio,
+                category_for(username, full_name, bio),
+                1 if it.get("verified") else 0,
+                1 if it.get("private") else 0,
+                captured_at,
+            ),
+        )
+        count += 1
+    _close(conn)
+    return count
+
+
+def get_account_profiles() -> Dict[str, Dict[str, Any]]:
+    """Perfiles enriquecidos indexados por username_key (minúsculas)."""
+    return {r["username_key"]: r for r in _rows("SELECT * FROM account_profiles")}
 
 
 def has_data() -> bool:

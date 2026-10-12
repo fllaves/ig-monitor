@@ -162,3 +162,19 @@ class InstagramSource:
             },
         )
         return [i for i in items if not i.get("error")]
+
+    def fetch_profiles(self, usernames: List[str], timeout_secs: int = 1800) -> List[Dict]:
+        """Datos de perfil (bio, categoría…) de una lista de cuentas.
+
+        Se usa para enriquecer y poder categorizar las cuentas seguidas.
+        """
+        urls = [f"https://www.instagram.com/{str(u).strip().lstrip('@')}/"
+                for u in usernames if u]
+        if not urls:
+            return []
+        items, _ = run_actor(
+            self.token,
+            {"resultsType": "details", "directUrls": urls, "resultsLimit": 1},
+            timeout_secs=timeout_secs,
+        )
+        return [i for i in items if not i.get("error")]

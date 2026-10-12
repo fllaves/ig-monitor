@@ -40,6 +40,7 @@ def load_all() -> Dict[str, Any]:
         "comments": storage.get_comments(),
         "mentions": storage.get_mentions(),
         "events": storage.get_relation_events(),
+        "profiles": storage.get_account_profiles(),
     }
 
 
@@ -209,6 +210,42 @@ with st.sidebar:
                 st.session_state["flash"] = {
                     "ok": False, "message": f"Error al importar: {exc}", "errors": []}
             st.rerun()
+
+    with st.expander("🔎 Enriquecer perfiles (Apify)"):
+        st.caption("Descarga bios y categorías de las cuentas que sigues, para "
+                   "clasificarlas mejor. Consume crédito de Apify por cada cuenta.")
+        enrich_n = st.number_input("Cuántas cuentas enriquecer", min_value=10,
+                                   max_value=1000, value=100, step=10)
+        if st.button("Enriquecer ahora", width="stretch"):
+            if not config.APIFY_TOKEN:
+                st.session_state["flash"] = {
+                    "ok": False, "message": "Falta APIFY_TOKEN en los secretos.", "errors": []}
+            else:
+                with st.spinner("Descargando perfiles vía Apify…"):
+                    try:
+                        from apify import InstagramSource
+                        members = analytics.relation_members(
+                            storage.get_relation_history(), "following")
+                        done = storage.get_account_profiles()
+                        pend = [m.get("username") for m in members
+                                if m.get("username")
+                                and m["username"].lower() not in done]
+                        pend = pend[:int(enrich_n)]
+                        if not pend:
+                            st.session_state["flash"] = {
+                                "ok": True, "message": "Todas las cuentas ya están enriquecidas.",
+                                "errors": []}
+                        else:
+                            items = InstagramSource(config.APIFY_TOKEN).fetch_profiles(pend)
+                            n = storage.save_account_profiles(items)
+                            st.session_state["flash"] = {
+                                "ok": True,
+                                "message": f"Perfiles enriquecidos: {n} de {len(pend)} solicitados.",
+                                "errors": []}
+                    except Exception as exc:  # noqa: BLE001
+                        st.session_state["flash"] = {
+                            "ok": False, "message": f"Error al enriquecer: {exc}", "errors": []}
+                st.rerun()
 
     st.divider()
     st.caption("Datos acumulados localmente en `data/instagram_monitor.db`.")
@@ -411,6 +448,140 @@ q2.metric("Verificadas", quality["verified"])
 q3.metric("Privadas", quality["private"])
 q4.metric("Sospechosas", quality["suspicious"])
 st.caption("Heurística simple sobre la muestra de seguidores (el plan gratis limita la lista a ~50).")
+
+st.divider()
+
+# --- Retención y churn -------------------------------------------------------
+
+st.subheader("📈 Retención y churn")
+retentions = [r for r in (
+    analytics.follow_retention(relation_history, "follower"),
+    analytics.follow_retention(relation_history, "following"),
+) if r]
+if retentions:
+    st.plotly_chart(analytics.fig_retention(retentions), width="stretch")
+    for r in retentions:
+        nombre = "Seguidores" if r["relation_type"] == "follower" else "Seguidos"
+        st.caption(
+            f"**{nombre}**: {r['retained']} de {r['first_count']} se mantienen "
+            f"({r['retention_pct']}%) · {r['dropped']} bajas · {r['added']} nuevas "
+            f"(de {r['first_date'][:10]} a {r['latest_date'][:10]})"
+        )
+else:
+    st.caption("Necesitas al menos dos fotos de las listas (importa un snapshot y sincroniza).")
+
+churn = analytics.relation_churn(events)
+if churn:
+    st.markdown("**Cuentas con más movimiento (serial follow/unfollow)**")
+    st.dataframe([{
+        "Usuario": c["username"], "Nombre": c["full_name"] or "",
+        "Bajas": c["lost_count"], "Altas": c["new_count"],
+        "Eventos": c["total"], "Último": (c["last_event"] or "")[:10],
+    } for c in churn[:20]], width="stretch", hide_index=True)
+
+re_follow = analytics.re_follows(events)
+if re_follow:
+    st.markdown("**Vuelven a aparecer (baja → alta)**")
+    st.dataframe([{
+        "Usuario": r["username"], "Nombre": r["full_name"] or "",
+        "Eventos": r["eventos"], "Último": (r["ultimo"] or "")[:10],
+    } for r in re_follow[:20]], width="stretch", hide_index=True)
+
+spikes = [a for a in analytics.unfollow_anomalies(events) if a["is_spike"]]
+if spikes:
+    st.warning("⚠️ Picos de bajas detectados: "
+               + ", ".join(f"{a['date']} ({a['count']})" for a in spikes))
+
+st.divider()
+
+# --- Categorías --------------------------------------------------------------
+
+st.subheader("📂 Categorías de cuentas")
+profiles = data["profiles"]
+cat_following = analytics.category_distribution(following_members, profiles)
+cat_followers = analytics.category_distribution(followers_members, profiles)
+if cat_following or cat_followers:
+    col_g, col_f = st.columns(2, gap="large")
+    with col_g:
+        st.markdown("**A quién sigues**")
+        if cat_following:
+            st.plotly_chart(analytics.fig_categories(cat_following), width="stretch")
+            st.dataframe(cat_following, width="stretch", hide_index=True)
+    with col_f:
+        st.markdown("**Quién te sigue**")
+        if cat_followers:
+            st.plotly_chart(analytics.fig_categories(cat_followers), width="stretch")
+            st.dataframe(cat_followers, width="stretch", hide_index=True)
+    st.caption(
+        "Clasificación por palabras clave del username/nombre"
+        + (" y biografía (perfiles enriquecidos)." if profiles
+           else ". Usa “🔎 Enriquecer perfiles” para mejorar la precisión con las bios.")
+    )
+else:
+    st.caption("Sin cuentas para categorizar todavía.")
+
+st.divider()
+
+# --- Ficha 360 ---------------------------------------------------------------
+
+st.subheader("🔎 Ficha 360 por cuenta")
+all_keys = sorted({
+    (m.get("username") or "") for m in (followers_members + following_members)
+    if m.get("username")
+})
+if all_keys:
+    query = st.text_input("Buscar cuenta (username)", "")
+    options = [k for k in all_keys if query.lower() in k.lower()] if query else all_keys
+    if options:
+        chosen_acc = st.selectbox("Cuenta", options[:500])
+        card = analytics.account_card(relation_history, events, profiles, chosen_acc)
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Te sigue", "✅" if card["is_follower"] else "❌")
+        k2.metric("La sigues", "✅" if card["is_following"] else "❌")
+        k3.metric("Mutuo", "✅" if card["mutual"] else "❌")
+        k4.metric("Fotos donde aparece", card["snapshots"])
+        st.markdown(
+            f"**@{config.mask(card['username'])}**"
+            + (f" · {config.mask(card['full_name'])}" if card.get("full_name") else "")
+            + (f" · 🏷️ {card['category']}" if card.get("category") else "")
+        )
+        if card.get("biography"):
+            st.caption(config.mask(card["biography"]))
+        st.caption(
+            f"Visto desde {(card['first_seen'] or '')[:10]} hasta {(card['last_seen'] or '')[:10]}"
+            + (f" · 🔗 {config.mask(card['profile_url'])}" if card.get("profile_url") else "")
+        )
+        if card["events"]:
+            st.markdown("**Historial de cambios**")
+            event_labels_card = {
+                "new_follower": "🟢 Nuevo seguidor", "lost_follower": "🔻 Te dejó de seguir",
+                "new_following": "🟢 Nuevo seguido", "lost_following": "🔻 Dejaste de seguir",
+            }
+            st.dataframe([{
+                "Fecha": (e.get("detected_at") or "")[:10],
+                "Evento": event_labels_card.get(e.get("event_type"), e.get("event_type")),
+            } for e in card["events"]], width="stretch", hide_index=True)
+        else:
+            st.caption("Sin cambios registrados para esta cuenta.")
+    else:
+        st.caption("Ninguna cuenta coincide con la búsqueda.")
+else:
+    st.caption("Importa un snapshot o sincroniza para tener cuentas.")
+
+st.divider()
+
+# --- Recomendador de limpieza ------------------------------------------------
+
+st.subheader("🧹 Recomendador de limpieza")
+clean = analytics.cleaning_suggestions(relation_history)
+if clean:
+    st.caption(f"{len(clean)} cuentas que sigues y no te siguen de vuelta.")
+    st.dataframe([{
+        "Usuario": c.get("username"), "Nombre": c.get("full_name") or "",
+        "Verificado": "✅" if c.get("is_verified") else "",
+    } for c in clean[:200]], width="stretch", hide_index=True)
+else:
+    st.caption("Sin sugerencias (o faltan datos de las listas).")
 
 st.divider()
 
