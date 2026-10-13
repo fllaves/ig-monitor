@@ -48,6 +48,7 @@ def load_all() -> Dict[str, Any]:
         "story_mentions": storage.get_story_mentions(),
         "ingest": storage.get_ingest_log(),
         "threads": storage.get_threads_posts(),
+        "linkedin": storage.get_linkedin_activity(),
     }
 
 
@@ -1086,3 +1087,89 @@ if watch_aff:
             } for c in r["components"]], width="stretch", hide_index=True)
 else:
     st.caption("Añade cuentas destacadas para calcular su afinidad.")
+
+st.divider()
+
+# --- LinkedIn ----------------------------------------------------------------
+
+st.subheader("💼 LinkedIn")
+st.caption("Actividad pública (**posts y compartidos**) de los perfiles que añadas. "
+           "Funciona **sin cookies**: no se usa ninguna sesión.")
+
+li_profiles = storage.get_linkedin_profiles()
+li_activity = data["linkedin"]
+me_li = (config.LINKEDIN_PROFILE or "").strip().lstrip("@").lower()
+
+with st.expander("➕ Gestionar perfiles de LinkedIn"):
+    li_url = st.text_input("URL de LinkedIn",
+                           placeholder="https://www.linkedin.com/in/usuario/",
+                           key="li_new")
+    if st.button("Añadir perfil", width="stretch"):
+        ident = storage.add_linkedin_profile(li_url)
+        st.session_state["flash"] = {
+            "ok": bool(ident),
+            "message": f"Añadido: @{ident}" if ident else "URL no válida",
+            "errors": []}
+        st.rerun()
+    if li_profiles:
+        li_rm = st.selectbox("Quitar perfil",
+                             [p["identifier"] for p in li_profiles], key="li_rm")
+        if st.button("Quitar perfil", width="stretch"):
+            storage.remove_linkedin_profile(li_rm)
+            st.rerun()
+    if st.button("🔄 Sincronizar LinkedIn", width="stretch"):
+        if not config.APIFY_TOKEN:
+            st.session_state["flash"] = {
+                "ok": False, "message": "Falta APIFY_TOKEN.", "errors": []}
+        else:
+            with st.spinner("Consultando LinkedIn… (sin cookies)"):
+                try:
+                    from sync import do_linkedin_sync
+                    res = do_linkedin_sync(token=config.APIFY_TOKEN)
+                    st.session_state["flash"] = {
+                        "ok": True, "message": res["message"],
+                        "errors": list(res.get("errors", []))}
+                except Exception as exc:  # noqa: BLE001
+                    st.session_state["flash"] = {
+                        "ok": False, "message": f"Error: {exc}", "errors": []}
+        st.rerun()
+    if me_li:
+        st.caption(f"Detectando quién comparte tu contenido de `@{config.mask(me_li)}`.")
+    else:
+        st.caption("Configura `LINKEDIN_PROFILE` en los secretos para detectar quién "
+                   "comparte tu contenido.")
+
+if li_profiles:
+    resumen_li = []
+    for p in li_profiles:
+        ident = (p.get("identifier") or "").lower()
+        acts = [a for a in li_activity if (a.get("profile") or "").lower() == ident]
+        mios = [a for a in acts if me_li and (a.get("author_id") or "").lower() == me_li]
+        fechas = [(a.get("reposted_at") or a.get("posted_at") or "") for a in acts]
+        resumen_li.append({
+            "Perfil": f"@{ident}",
+            "Elementos": len(acts),
+            "Compartió tu contenido": len(mios),
+            "Última actividad": max([f for f in fechas if f], default="")[:10],
+            "Último compartido tuyo": max(
+                [(a.get("reposted_at") or "") for a in mios], default="")[:10],
+        })
+    resumen_li.sort(key=lambda r: (-r["Compartió tu contenido"], -r["Elementos"]))
+    st.dataframe(resumen_li, width="stretch", hide_index=True)
+
+    if li_activity:
+        with st.expander(f"Ver toda la actividad ({len(li_activity)})"):
+            st.dataframe([{
+                "Fecha": (a.get("reposted_at") or a.get("posted_at") or "")[:10],
+                "Perfil": f"@{a.get('profile') or ''}",
+                "Autor original": a.get("author_name") or "",
+                "Compartido por": a.get("reposted_by_name") or "",
+                "Texto": (a.get("content") or "")[:110],
+                "Likes": a.get("likes"),
+                "Tu contenido": "✅" if me_li and (a.get("author_id") or "").lower() == me_li else "",
+                "Enlace": a.get("url") or "",
+            } for a in li_activity], width="stretch", hide_index=True,
+                column_config={"Enlace": st.column_config.LinkColumn("Enlace")})
+else:
+    st.caption("Añade perfiles de LinkedIn en el gestor de arriba para empezar a "
+               "monitorizar su actividad pública.")

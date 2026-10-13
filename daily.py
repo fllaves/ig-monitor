@@ -66,6 +66,12 @@ def main() -> int:
                     print(f"  {tres.get('message', '')}")
                 except Exception as exc:  # noqa: BLE001
                     print(f"  ⚠ threads: {exc}", file=sys.stderr)
+                try:
+                    print("→ Consultando LinkedIn…")
+                    lres = sync.do_linkedin_sync(token=config.APIFY_TOKEN)
+                    print(f"  {lres.get('message', '')}")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"  ⚠ linkedin: {exc}", file=sys.stderr)
 
     digest = analytics.daily_digest(
         storage.get_relation_events(),

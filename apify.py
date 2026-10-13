@@ -250,3 +250,55 @@ class ThreadsSource:
                     "bio": prof.get("biography") or "",
                 })
         return out
+
+
+class LinkedInSource:
+    """Actividad pública de perfiles de LinkedIn: posts **y reposts**.
+
+    Usa el Actor `harvestapi/linkedin-profile-posts`, que funciona **sin
+    cookies**. Eso lo hace mucho más seguro que Instagram: no hay sesión que
+    comprometer y el riesgo no recae sobre la cuenta propia.
+
+    El campo clave es `repostedBy`: cuando alguien comparte el contenido de otra
+    persona, el item conserva autor original + quién lo compartió + **cuándo**.
+    """
+
+    def __init__(self, token: str = None):
+        self.token = token or config.APIFY_TOKEN
+
+    @staticmethod
+    def _normalize(it: Dict) -> Dict:
+        author = it.get("author") or {}
+        rep = it.get("repostedBy") or {}
+        eng = it.get("engagement") or {}
+        posted = it.get("postedAt") or {}
+        reposted = it.get("repostedAt") or {}
+        query = it.get("query") or {}
+        src = str(query.get("profilePublicIdentifier") or "")
+        if "/in/" in src:
+            src = src.split("/in/", 1)[1].split("?", 1)[0].split("/", 1)[0]
+        return {
+            "post_id": str(it.get("id") or it.get("entityId") or ""),
+            "profile": src.lower(),
+            "author_name": author.get("name") or "",
+            "author_id": (author.get("publicIdentifier") or "").lower(),
+            "author_info": author.get("info") or "",
+            "content": it.get("content") or "",
+            "url": it.get("linkedinUrl") or "",
+            "posted_at": posted.get("date") if isinstance(posted, dict) else "",
+            "reposted_by": (rep.get("publicIdentifier") or "").lower(),
+            "reposted_by_name": rep.get("name") or "",
+            "reposted_at": reposted.get("date") if isinstance(reposted, dict) else "",
+            "likes": int(eng.get("likes") or 0),
+            "comments": int(eng.get("comments") or 0),
+            "shares": int(eng.get("shares") or 0),
+        }
+
+    def fetch_activity(self, profile_urls: List[str], timeout_secs: int = 900) -> List[Dict]:
+        urls = [str(u).strip() for u in (profile_urls or []) if u]
+        if not urls:
+            return []
+        items, _ = run_actor(self.token, {"profileUrls": urls},
+                             actor_id=config.LINKEDIN_ACTOR_ID,
+                             timeout_secs=timeout_secs)
+        return [self._normalize(i) for i in items if i.get("linkedinUrl")]

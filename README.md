@@ -39,6 +39,9 @@ local (SQLite) y muestra tendencias, KPIs y análisis de engagement.
 - **🧵 Threads (Meta)**: fuente **pública** vía el Actor oficial
   `apify/threads-profile-api-scraper` — perfil, seguidores y publicaciones
   recientes de tus cuentas destacadas. Sin login y sin cookies.
+- **💼 LinkedIn**: actividad pública (posts y **compartidos**) de los perfiles
+  que añadas, vía `harvestapi/linkedin-profile-posts`, **sin cookies**. Detecta
+  y fecha **quién comparte tu contenido**.
 - **Recomendador de limpieza**: cuentas que sigues y no te siguen de vuelta.
 - **Importar snapshots históricos** (JSON) para incorporar datos anteriores a Apify.
 - **Seguidores mutuos (mutuals)**: cruza ambas listas para ver quién te sigue y

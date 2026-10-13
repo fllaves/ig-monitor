@@ -317,6 +317,33 @@ CREATE TABLE IF NOT EXISTS threads_posts (
 
 CREATE INDEX IF NOT EXISTS idx_threads_posts_user ON threads_posts(username);
 
+CREATE TABLE IF NOT EXISTS linkedin_profiles (
+    identifier TEXT PRIMARY KEY,
+    url        TEXT,
+    name       TEXT,
+    added_at   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS linkedin_activity (
+    post_id          TEXT PRIMARY KEY,
+    profile          TEXT,
+    author_name      TEXT,
+    author_id        TEXT,
+    author_info      TEXT,
+    content          TEXT,
+    url              TEXT,
+    posted_at        TEXT,
+    reposted_by      TEXT,
+    reposted_by_name TEXT,
+    reposted_at      TEXT,
+    likes            INTEGER DEFAULT 0,
+    comments         INTEGER DEFAULT 0,
+    shares           INTEGER DEFAULT 0,
+    captured_at      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_linkedin_activity_profile ON linkedin_activity(profile);
+
 CREATE INDEX IF NOT EXISTS idx_relation_events_detected ON relation_events(detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_mentions_captured ON mentions(captured_at);
@@ -362,6 +389,8 @@ def reset_db() -> None:
     """Borra todos los datos y deja el esquema vacío listo para usar."""
     conn = _connect()
     conn.executescript(
+        "DROP TABLE IF EXISTS linkedin_activity;"
+        "DROP TABLE IF EXISTS linkedin_profiles;"
         "DROP TABLE IF EXISTS threads_posts;"
         "DROP TABLE IF EXISTS ingest_log;"
         "DROP TABLE IF EXISTS story_mentions;"
@@ -1110,6 +1139,78 @@ def get_threads_posts(username: str = None) -> List[Dict[str, Any]]:
     if username:
         key = str(username).strip().lstrip("@").lower()
         return [r for r in rows if (r.get("username") or "").lower() == key]
+    return rows
+
+
+# --- LinkedIn ----------------------------------------------------------------
+
+def _linkedin_identifier(url_or_id: str) -> str:
+    """Extrae el identificador público de una URL de LinkedIn."""
+    value = str(url_or_id or "").strip().rstrip("/")
+    if "/in/" in value:
+        value = value.split("/in/", 1)[1]
+        value = value.split("?", 1)[0].split("/", 1)[0]
+    return value.lstrip("@").lower()
+
+
+def add_linkedin_profile(url_or_id: str, name: str = "") -> str:
+    ident = _linkedin_identifier(url_or_id)
+    if not ident:
+        return ""
+    init_db()  # asegura que existan las tablas de LinkedIn
+    url = url_or_id if str(url_or_id).startswith("http") else f"https://www.linkedin.com/in/{ident}/"
+    conn = _connect()
+    conn.execute("INSERT OR REPLACE INTO linkedin_profiles(identifier, url, name, added_at)"
+                 " VALUES (?, ?, ?, ?)", (ident, url, name, utcnow()))
+    _close(conn)
+    return ident
+
+
+def get_linkedin_profiles() -> List[Dict[str, Any]]:
+    return _rows("SELECT * FROM linkedin_profiles ORDER BY identifier")
+
+
+def remove_linkedin_profile(identifier: str) -> None:
+    conn = _connect()
+    conn.execute("DELETE FROM linkedin_profiles WHERE identifier = ?",
+                 (_linkedin_identifier(identifier),))
+    _close(conn)
+
+
+def save_linkedin_activity(profile: str, items: List[Dict[str, Any]]) -> int:
+    if not items:
+        return 0
+    conn = _connect()
+    now = utcnow()
+    count = 0
+    for it in items:
+        pid = str(it.get("post_id") or "").strip()
+        if not pid:
+            continue
+        conn.execute(
+            "INSERT OR REPLACE INTO linkedin_activity(post_id, profile, author_name, author_id,"
+            " author_info, content, url, posted_at, reposted_by, reposted_by_name, reposted_at,"
+            " likes, comments, shares, captured_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, (profile or "").lower(), it.get("author_name"), it.get("author_id"),
+             it.get("author_info"), it.get("content"), it.get("url"), it.get("posted_at"),
+             it.get("reposted_by"), it.get("reposted_by_name"), it.get("reposted_at"),
+             int(it.get("likes") or 0), int(it.get("comments") or 0),
+             int(it.get("shares") or 0), now),
+        )
+        count += 1
+    _close(conn)
+    if count:
+        log_ingest("linkedin", f"actividad de @{profile}", count)
+    return count
+
+
+def get_linkedin_activity(profile: str = None) -> List[Dict[str, Any]]:
+    rows = _rows("SELECT * FROM linkedin_activity ORDER BY"
+                 " COALESCE(NULLIF(reposted_at, ''), posted_at) DESC")
+    if profile:
+        key = _linkedin_identifier(profile)
+        return [r for r in rows if (r.get("profile") or "").lower() == key]
     return rows
 
 

@@ -83,6 +83,10 @@ ACTOR_ID = _get("ACTOR_ID", "apify~instagram-scraper")
 FOLLOWERS_ACTOR_ID = _get("FOLLOWERS_ACTOR_ID", "apify~instagram-followers-following-scraper")
 # Actor oficial: perfiles públicos de Threads (Meta) + publicaciones recientes
 THREADS_ACTOR_ID = _get("THREADS_ACTOR_ID", "apify~threads-profile-api-scraper")
+# Actor de LinkedIn: actividad pública de un perfil (posts y reposts), sin cookies
+LINKEDIN_ACTOR_ID = _get("LINKEDIN_ACTOR_ID", "harvestapi~linkedin-profile-posts")
+# Tu identificador público de LinkedIn (para detectar quién comparte tu contenido)
+LINKEDIN_PROFILE = _get("LINKEDIN_PROFILE", "")
 
 RESULTS_LIMIT = _int("RESULTS_LIMIT", 100)
 FOLLOWERS_LIMIT = _int("FOLLOWERS_LIMIT", 200)

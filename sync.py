@@ -213,6 +213,52 @@ def do_threads_sync(token: str = None, accounts: List[str] = None) -> Dict:
     return summary
 
 
+def do_linkedin_sync(token: str = None, profiles: List = None) -> Dict:
+    """Actividad pública de LinkedIn (posts **y reposts**) de los perfiles añadidos.
+
+    Funciona **sin cookies**: no hay sesión que comprometer, así que el riesgo no
+    recae sobre la cuenta propia. El valor está en `repostedBy`/`repostedAt`: si
+    alguien comparte tu contenido, queda registrado con fecha.
+    """
+    from apify import LinkedInSource
+
+    storage.init_db()
+    token = token or config.APIFY_TOKEN
+    summary = {"profiles": 0, "items": 0, "shared_mine": 0, "errors": [], "message": ""}
+    if not token:
+        summary["errors"].append("linkedin: falta APIFY_TOKEN")
+        summary["message"] = "Sin token no se puede consultar LinkedIn."
+        return summary
+
+    rows = profiles if profiles is not None else storage.get_linkedin_profiles()
+    rows = [r for r in (rows or []) if (r or {}).get("url")]
+    if not rows:
+        summary["message"] = "No hay perfiles de LinkedIn añadidos todavía."
+        return summary
+
+    try:
+        items = LinkedInSource(token).fetch_activity([r["url"] for r in rows])
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append(f"linkedin: {exc}")
+        summary["message"] = f"Error consultando LinkedIn: {exc}"
+        return summary
+
+    grupos: Dict[str, List] = {}
+    for it in items:
+        grupos.setdefault(it.get("profile") or "", []).append(it)
+    for ident, grupo in grupos.items():
+        if ident:
+            summary["items"] += storage.save_linkedin_activity(ident, grupo)
+            if any((g.get("reposted_by") or "") == ident for g in grupo):
+                summary["shared_mine"] += sum(
+                    1 for g in grupo if (g.get("reposted_by") or "") == ident)
+    summary["profiles"] = len([k for k in grupos if k])
+    summary["message"] = (
+        f"LinkedIn: {summary['profiles']}/{len(rows)} perfiles, "
+        f"{summary['items']} elementos.")
+    return summary
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sincroniza el monitoreo de Instagram")
     parser.add_argument("--demo", action="store_true", help="usa datos de demostración")

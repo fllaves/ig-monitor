@@ -25,6 +25,24 @@
   `apify/threads-profile-api-scraper`. Sin login, sin cookies. Trae perfil,
   seguidores y publicaciones recientes de cada cuenta destacada. Integrado en
   el panel (pestaña de cada cuenta + botón de sync) y en la rutina de las 5:00.
+- **💼 LinkedIn**: fuente pública vía `harvestapi/linkedin-profile-posts`,
+  **sin cookies** (no hay sesión que comprometer). Devuelve posts **y
+  compartidos** con `repostedBy` + `repostedAt` → **señales con fecha**.
+  Sección propia en el panel con ranking de quién comparte tu contenido.
+
+## 💼 Hallazgo LinkedIn (DRZ)
+
+- Identificador: `DRZ` · Abogada comercial / inmigración de negocios.
+- **49 compartidos** en LinkedIn, casi todos de medios e instituciones
+  colombianas (Superintendencia de Industria y Comercio, Cámara de Comercio de
+  Cali, Forbes Colombia, Portafolio, PROCOLOMBIA).
+- ✅ **Compartió TU post** *"What's the best city in Latin America to work
+  remotely?"* el **26 sep 2026** (181 likes) — detectado automáticamente.
+- ❌ **Quién da "me gusta" NO es accesible**: los actores de reacciones
+  (`harvestapi/linkedin-post-reactions`, `unseenuser/...`) devuelven 0 items.
+  LinkedIn no expone públicamente la lista de reaccionantes.
+- ✅ Lo que **sí** se puede monitorizar de una lista de perfiles: su actividad,
+  **sus compartidos** y **si comparten tu contenido** (con fecha).
 
 ## 🔎 Hallazgos sobre las 5 cuentas destacadas
 
