@@ -1029,3 +1029,83 @@ def fig_activity(series: List[Dict]) -> go.Figure:
         margin=dict(t=40, b=40), template="plotly_white",
     )
     return fig
+
+
+# --- Índice de afinidad ------------------------------------------------------
+
+# Pesos de cada señal pública (cuanto más "íntima", más peso).
+AFFINITY_WEIGHTS = {
+    "follows": 3,
+    "yo_la_menciono": 2,
+    "me_menciona_post": 3,
+    "yo_comento_sus_posts": 3,
+    "ella_comenta_mis_posts": 3,
+    "me_menciona_historia": 4,
+    "yo_la_menciono_historia": 2,
+}
+
+
+def affinity_breakdown(card: Dict, watch_inter: Optional[Dict] = None) -> Dict[str, Any]:
+    """Puntaje de afinidad con una cuenta a partir de las señales disponibles."""
+    wi = watch_inter or {}
+    counts = {
+        "follows": len(card.get("events", []) or []),
+        "yo_la_menciono": len(card.get("my_mentions", []) or []),
+        "me_menciona_post": len(card.get("their_mentions", []) or []),
+        "yo_comento_sus_posts": len(wi.get("my_comments_on_theirs", []) or []),
+        "ella_comenta_mis_posts": len(wi.get("their_comments_on_mine", []) or []),
+        "me_menciona_historia": len(wi.get("stories_from_them", []) or []),
+        "yo_la_menciono_historia": len(wi.get("stories_of_me", []) or []),
+    }
+    labels = {
+        "follows": "Follows / unfollows",
+        "yo_la_menciono": "La mencionas en posts",
+        "me_menciona_post": "Te menciona en posts",
+        "yo_comento_sus_posts": "Tú comentas sus posts",
+        "ella_comenta_mis_posts": "Ella comenta tus posts",
+        "me_menciona_historia": "Te menciona en historias",
+        "yo_la_menciono_historia": "La mencionas en historias",
+    }
+    components = []
+    score = 0
+    for key, count in counts.items():
+        weight = AFFINITY_WEIGHTS[key]
+        points = count * weight
+        score += points
+        components.append({"signal": labels[key], "count": count,
+                           "weight": weight, "points": points})
+
+    dates = []
+    for e in (card.get("events") or []):
+        if isinstance(e, dict) and e.get("detected_at"):
+            dates.append(e["detected_at"])
+    for key in ("my_comments_on_theirs", "their_comments_on_mine",
+                "stories_from_them", "stories_of_me"):
+        for c in (wi.get(key) or []):
+            if isinstance(c, dict) and c.get("timestamp"):
+                dates.append(c["timestamp"])
+    return {
+        "score": score,
+        "components": components,
+        "total_signals": sum(counts.values()),
+        "last_signal": max(dates) if dates else "",
+    }
+
+
+def affinity_table(watchlist: List[Dict], build_card, build_inter) -> List[Dict]:
+    """Tabla de afinidad ordenada de mayor a menor para las cuentas destacadas."""
+    rows = []
+    for w in watchlist or []:
+        username = w.get("username") or w
+        card = build_card(username)
+        inter = build_inter(username)
+        aff = affinity_breakdown(card, inter)
+        rows.append({
+            "username": username,
+            "score": aff["score"],
+            "total_signals": aff["total_signals"],
+            "last_signal": aff["last_signal"],
+            "components": aff["components"],
+        })
+    rows.sort(key=lambda r: (-r["score"], r["username"].lower()))
+    return rows

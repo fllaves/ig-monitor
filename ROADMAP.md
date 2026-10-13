@@ -14,16 +14,23 @@
 - **Snapshot histórico** de octubre importado (50 seguidores / 898 seguidos).
 - **Alertas por Telegram** + **rutina diaria** (`daily.py`).
 - **Privacidad**: username purgado del repo, panel muestra "IG FV", textos enmascarados.
-- **Scripts locales con la burner** (3 variantes) — bloqueados por HTTP 429.
+- **Scripts locales con la burner** (3 variantes: API, Playwright, método humano).
+- **Escáner de destacadas** (`burner_highlights.py`): busca menciones tuyas en las
+  historias destacadas (el único sitio donde sobrevive una mención de historia,
+  con su **fecha original**).
+- **🏆 Índice de afinidad**: puntaje por cuenta destacada combinando todas las
+  señales públicas (historias ×4, follows/menciones/comentarios ×3, menciones
+  en posts ×2), con desglose por señal.
+- **Estado de hoy**: token de Apify ✅ · sync ✅ · rutina cron ✅ (05:00 con `--watch`).
 
 ## 🔴 Bloqueadores actuales
 
 | # | Bloqueador | Impacto | Cómo se resuelve |
 |---|---|---|---|
-| 1 | **Token de Apify en Streamlit Secrets** (401) | Sin sync no entran datos nuevos | Reboot + diagnóstico; pegar el token del `.env` |
-| 2 | **Plan gratis de Apify** (~50 por lista) | Datos incompletos, watchlist vacía | Curtir la burner o plan de pago |
-| 3 | **Burner con 429** | Sin listas completas ni historias | `burner_human.py` tras enfriar 24 h |
-| 4 | **Rutina diaria sin activar** | No se acumula historial | cron local o GitHub Actions |
+| 1 | **Plan gratis de Apify** (~50 por lista) | Datos incompletos, watchlist vacía | Curtir la burner o plan de pago |
+| 2 | **Burner con 429 en la API** | Sin listas completas | El **método humano** (`burner_human.py`) evita la API |
+| 3 | **Selectores de Instagram** | No abre las listas todavía | `--debug` para ver qué encuentra y ajustar |
+| 4 | **Historias/DMs borrados** | Interacciones irrecuperables | Solo quedan las **destacadas** |
 
 ## 🎯 Pendiente priorizado
 

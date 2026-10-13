@@ -1003,3 +1003,44 @@ with st.expander("➕ Gestionar cuentas destacadas"):
         if st.button("Quitar cuenta", width="stretch"):
             storage.remove_watch_account(remove_name)
             st.rerun()
+
+st.divider()
+
+# --- Índice de afinidad ------------------------------------------------------
+
+st.subheader("🏆 Índice de afinidad")
+watch_aff = storage.get_watchlist()
+if watch_aff:
+    def _card_for(username):
+        return analytics.account_report(
+            data["relation_history"], data["events"], posts,
+            data["comments"], data["mentions"], data["profiles"], username)
+
+    def _inter_for(username):
+        return analytics.watch_interactions(
+            data["external_posts"], data["external_comments"],
+            data["comments"], username, config.USERNAME,
+            story_mentions=data["story_mentions"])
+
+    aff_rows = analytics.affinity_table(watch_aff, _card_for, _inter_for)
+    st.dataframe([{
+        "Cuenta": f"@{r['username']}",
+        "Afinidad": r["score"],
+        "Señales": r["total_signals"],
+        "Última señal": (r["last_signal"] or "")[:10],
+    } for r in aff_rows], width="stretch", hide_index=True)
+
+    st.caption("Pesos: historias ×4 · follows, menciones y comentarios ×3 · "
+               "menciones en posts ×2. Solo cuenta señales públicas.")
+
+    with st.expander("Ver el desglose de cada cuenta"):
+        for r in aff_rows:
+            st.markdown(f"**@{config.mask(r['username'])} — {r['score']} puntos**")
+            st.dataframe([{
+                "Señal": c["signal"],
+                "Cantidad": c["count"],
+                "Peso": c["weight"],
+                "Puntos": c["points"],
+            } for c in r["components"]], width="stretch", hide_index=True)
+else:
+    st.caption("Añade cuentas destacadas para calcular su afinidad.")
