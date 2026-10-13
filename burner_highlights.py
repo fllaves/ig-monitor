@@ -83,11 +83,24 @@ def scan_account(page, account: str, terms: list, wait: float, debug: bool) -> l
     page.goto(f"{BASE}/{account}/", wait_until="domcontentloaded")
     time.sleep(wait)
 
-    try:
-        highlights = page.evaluate(JS_HIGHLIGHTS) or []
-    except Exception as exc:  # noqa: BLE001
-        print(f"  ⚠ no pude leer las destacadas: {exc}", file=sys.stderr)
-        return found
+    # Las destacadas cargan de forma diferida: reintentar provocando el scroll.
+    highlights = []
+    for attempt in range(7):
+        try:
+            highlights = page.evaluate(JS_HIGHLIGHTS) or []
+        except Exception as exc:  # noqa: BLE001
+            if debug:
+                print(f"    (error leyendo destacadas: {exc})")
+            highlights = []
+        if highlights:
+            break
+        try:
+            page.mouse.wheel(0, 500)
+        except Exception:
+            pass
+        time.sleep(2.5)
+    if debug:
+        print(f"    (intentos: {attempt + 1}, destacadas: {len(highlights)})")
 
     if not highlights:
         print("  · sin destacadas (o no cargaron)")
