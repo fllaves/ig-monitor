@@ -81,6 +81,8 @@ APIFY_TOKEN = _get("APIFY_TOKEN", "").strip()
 ACTOR_ID = _get("ACTOR_ID", "apify~instagram-scraper")
 # Actor dedicado: listas de seguidores y seguidos
 FOLLOWERS_ACTOR_ID = _get("FOLLOWERS_ACTOR_ID", "apify~instagram-followers-following-scraper")
+# Actor oficial: perfiles públicos de Threads (Meta) + publicaciones recientes
+THREADS_ACTOR_ID = _get("THREADS_ACTOR_ID", "apify~threads-profile-api-scraper")
 
 RESULTS_LIMIT = _int("RESULTS_LIMIT", 100)
 FOLLOWERS_LIMIT = _int("FOLLOWERS_LIMIT", 200)

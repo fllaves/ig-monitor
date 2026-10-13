@@ -177,6 +177,42 @@ def do_watch_sync(token: str = "", accounts: list = None,
     return summary
 
 
+def do_threads_sync(token: str = None, accounts: List[str] = None) -> Dict:
+    """Perfiles y publicaciones públicas de Threads de las cuentas destacadas.
+
+    Threads es la única red (además de Instagram) que el proyecto puede leer sin
+    tocar la cuenta propia: los perfiles públicos se consultan vía Apify.
+    """
+    from apify import ThreadsSource
+
+    storage.init_db()  # asegura que exista la tabla threads_posts
+    token = token or config.APIFY_TOKEN
+    summary = {"accounts": 0, "posts": 0, "found": 0, "errors": [], "message": ""}
+    if not token:
+        summary["errors"].append("threads: falta APIFY_TOKEN")
+        summary["message"] = "Sin token no se puede consultar Threads."
+        return summary
+
+    names = accounts or [w.get("username") for w in storage.get_watchlist()]
+    names = [n for n in names if n]
+    summary["accounts"] = len(names)
+    if not names:
+        summary["message"] = "No hay cuentas destacadas que consultar en Threads."
+        return summary
+
+    try:
+        posts = ThreadsSource(token).fetch_posts(names)
+        summary["posts"] = storage.save_threads_posts(posts)
+        summary["found"] = len({p.get("username") for p in posts})
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append(f"threads: {exc}")
+
+    summary["message"] = (
+        f"Threads: {summary['found']}/{summary['accounts']} cuentas encontradas, "
+        f"{summary['posts']} publicaciones.")
+    return summary
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sincroniza el monitoreo de Instagram")
     parser.add_argument("--demo", action="store_true", help="usa datos de demostración")

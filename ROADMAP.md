@@ -21,6 +21,27 @@
 - **🏆 Índice de afinidad**: puntaje por cuenta destacada combinando todas las
   señales públicas (historias ×4, follows/menciones/comentarios ×3, menciones
   en posts ×2), con desglose por señal.
+- **🧵 Threads (Meta)**: nueva fuente **pública** vía el Actor oficial
+  `apify/threads-profile-api-scraper`. Sin login, sin cookies. Trae perfil,
+  seguidores y publicaciones recientes de cada cuenta destacada. Integrado en
+  el panel (pestaña de cada cuenta + botón de sync) y en la rutina de las 5:00.
+
+## 🔎 Hallazgos sobre las 5 cuentas destacadas
+
+| Cuenta | Instagram | Threads | Destacadas |
+|---|---|---|---|
+| `PP` | Pública · 2.251 seg. | ✅ Pública · 517 seg. · **publica a diario** | **7** |
+| `BC` | Pública · 2.683 seg. | ✅ Pública · 439 seg. | **11** |
+| `DRZ` | (sin datos) | ✅ Pública · 380 seg. · *abogada* | — |
+| `JU` | 🔒 **Privada** · 381 seg. | 🔒 Privada | 0 |
+| `F` | 🔒 **Privada** · 6.343 seg. | ❌ No tiene | 0 |
+
+- **2 son privadas** → nada recuperable de ellas (ni posts ni historias).
+- **2 tienen 18 destacadas** (7 + 11) → hay que revisarlas con
+  `burner_highlights.py`: **el escáner anterior no las detectó**.
+- **3 tienen Threads público** → nueva superficie de señales, ya integrada.
+- **Ninguna te menciona** en sus posts recientes de Threads (verificado).
+- Las historias y los DMs desaparecidos **no son recuperables**.
 - **Estado de hoy**: token de Apify ✅ · sync ✅ · rutina cron ✅ (05:00 con `--watch`).
 
 ## 🔴 Bloqueadores actuales

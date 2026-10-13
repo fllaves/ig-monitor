@@ -11,6 +11,7 @@ import json
 import time
 import urllib.request
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 import config
@@ -192,3 +193,60 @@ class InstagramSource:
             timeout_secs=timeout_secs,
         )
         return [i for i in items if not i.get("error")]
+
+
+def _iso(ts: Any) -> str:
+    try:
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
+    except (TypeError, ValueError, OSError):
+        return ""
+
+
+class ThreadsSource:
+    """Perfiles públicos de Threads (Meta) y sus publicaciones recientes.
+
+    Usa el Actor oficial `apify/threads-profile-api-scraper`. No necesita login
+    ni cookies: solo datos públicos. Es la única red además de Instagram donde
+    el proyecto puede mirar sin tocar la cuenta propia.
+    """
+
+    def __init__(self, token: str = None):
+        self.token = token or config.APIFY_TOKEN
+
+    def fetch_profiles(self, usernames: List[str], timeout_secs: int = 600) -> List[Dict]:
+        names = [str(u).strip().lstrip("@") for u in (usernames or []) if u]
+        if not names:
+            return []
+        items, _ = run_actor(self.token, {"usernames": names},
+                             actor_id=config.THREADS_ACTOR_ID,
+                             timeout_secs=timeout_secs)
+        return [i for i in items if i.get("username")]
+
+    def fetch_posts(self, usernames: List[str], timeout_secs: int = 600) -> List[Dict]:
+        """Aplana los `latestPosts` de cada perfil en filas listas para guardar."""
+        out: List[Dict] = []
+        for prof in self.fetch_profiles(usernames, timeout_secs=timeout_secs):
+            uname = prof.get("username")
+            is_private = prof.get("is_private") or prof.get("text_post_app_is_private")
+            for p in prof.get("latestPosts") or []:
+                cap = p.get("caption")
+                if isinstance(cap, dict):
+                    cap = cap.get("text") or ""
+                code = p.get("code") or ""
+                out.append({
+                    "post_id": str(p.get("pk") or p.get("id") or code),
+                    "username": uname,
+                    "code": code,
+                    "url": p.get("canonical_url") or (
+                        f"https://www.threads.net/@{uname}/post/{code}" if code else ""),
+                    "text": cap or "",
+                    "like_count": p.get("like_count") or 0,
+                    "taken_at": _iso(p.get("taken_at")),
+                    "media_type": p.get("media_type"),
+                    "tags": [((t.get("user") or {}).get("username") or "")
+                             for t in ((p.get("usertags") or {}).get("in") or [])],
+                    "is_private": bool(is_private),
+                    "followers": prof.get("follower_count") or 0,
+                    "bio": prof.get("biography") or "",
+                })
+        return out

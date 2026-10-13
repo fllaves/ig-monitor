@@ -60,6 +60,12 @@ def main() -> int:
                     print(f"  {wres.get('posts', 0)} posts / {wres.get('comments', 0)} comentarios")
                 except Exception as exc:  # noqa: BLE001
                     print(f"  ⚠ destacadas: {exc}", file=sys.stderr)
+                try:
+                    print("→ Consultando Threads…")
+                    tres = sync.do_threads_sync(token=config.APIFY_TOKEN)
+                    print(f"  {tres.get('message', '')}")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"  ⚠ threads: {exc}", file=sys.stderr)
 
     digest = analytics.daily_digest(
         storage.get_relation_events(),

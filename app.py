@@ -47,6 +47,7 @@ def load_all() -> Dict[str, Any]:
         "external_comments": storage.get_external_comments(),
         "story_mentions": storage.get_story_mentions(),
         "ingest": storage.get_ingest_log(),
+        "threads": storage.get_threads_posts(),
     }
 
 
@@ -918,6 +919,29 @@ if watch:
                            "la burner (o sesión); las **tuyas**, tu sesión: son efímeras y "
                            "privadas. Puedes importarlas con el JSON del gestor de abajo.")
 
+            # --- Threads (público, sin sesión) ---
+            st.markdown("#### 🧵 Threads (público)")
+            tposts = [t for t in data["threads"]
+                      if (t.get("username") or "").lower() == w["username"].lower()]
+            me_threads = (config.USERNAME or "").strip().lstrip("@").lower()
+            t_mentions = [t for t in tposts
+                          if me_threads and me_threads in (t.get("text") or "").lower()]
+            tm1, tm2, tm3 = st.columns(3)
+            tm1.metric("Posts recientes", len(tposts))
+            tm2.metric("Seguidores en Threads", (tposts[0].get("followers") or 0) if tposts else 0)
+            tm3.metric("Te mencionan", len(t_mentions))
+            if tposts:
+                st.dataframe([{
+                    "Fecha": (t.get("taken_at") or "")[:10],
+                    "Texto": (t.get("text") or "")[:130],
+                    "Likes": t.get("like_count"),
+                    "Enlace": t.get("url") or "",
+                } for t in tposts], width="stretch", hide_index=True,
+                    column_config={"Enlace": st.column_config.LinkColumn("Enlace")})
+            else:
+                st.caption("Sin datos de Threads. Pulsa **«🧵 Sincronizar Threads»** en el "
+                           "gestor de abajo (solo funciona si su perfil es público).")
+
             if wi["their_posts"]:
                 with st.expander(f"Ver sus publicaciones ({len(wi['their_posts'])})"):
                     st.dataframe([{
@@ -976,6 +1000,24 @@ with st.expander("➕ Gestionar cuentas destacadas"):
                         "ok": True,
                         "message": (f"Interacciones actualizadas: {res['posts']} posts y "
                                     f"{res['comments']} comentarios de {res['accounts']} cuentas."),
+                        "errors": list(res.get("errors", [])),
+                    }
+                except Exception as exc:  # noqa: BLE001
+                    st.session_state["flash"] = {
+                        "ok": False, "message": f"Error: {exc}", "errors": []}
+        st.rerun()
+    if st.button("🧵 Sincronizar Threads (público)", width="stretch"):
+        if not config.APIFY_TOKEN:
+            st.session_state["flash"] = {
+                "ok": False, "message": "Falta APIFY_TOKEN.", "errors": []}
+        else:
+            with st.spinner("Consultando Threads… (solo perfiles públicos)"):
+                try:
+                    from sync import do_threads_sync
+                    res = do_threads_sync(token=config.APIFY_TOKEN,
+                                          accounts=[w["username"] for w in watch])
+                    st.session_state["flash"] = {
+                        "ok": True, "message": res["message"],
                         "errors": list(res.get("errors", [])),
                     }
                 except Exception as exc:  # noqa: BLE001

@@ -299,6 +299,24 @@ CREATE TABLE IF NOT EXISTS ingest_log (
     message TEXT
 );
 
+CREATE TABLE IF NOT EXISTS threads_posts (
+    post_id     TEXT PRIMARY KEY,
+    username    TEXT,
+    code        TEXT,
+    url         TEXT,
+    text        TEXT,
+    like_count  INTEGER DEFAULT 0,
+    taken_at    TEXT,
+    media_type  INTEGER,
+    tags        TEXT,
+    is_private  INTEGER DEFAULT 0,
+    followers   INTEGER DEFAULT 0,
+    bio         TEXT,
+    captured_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_threads_posts_user ON threads_posts(username);
+
 CREATE INDEX IF NOT EXISTS idx_relation_events_detected ON relation_events(detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_mentions_captured ON mentions(captured_at);
@@ -344,6 +362,7 @@ def reset_db() -> None:
     """Borra todos los datos y deja el esquema vacío listo para usar."""
     conn = _connect()
     conn.executescript(
+        "DROP TABLE IF EXISTS threads_posts;"
         "DROP TABLE IF EXISTS ingest_log;"
         "DROP TABLE IF EXISTS story_mentions;"
         "DROP TABLE IF EXISTS external_comments;"
@@ -1049,6 +1068,49 @@ def log_ingest(source: str, detail: str = "", items: int = 0,
 
 def get_ingest_log(limit: int = 300) -> List[Dict[str, Any]]:
     return _rows("SELECT * FROM ingest_log ORDER BY id DESC LIMIT ?", (limit,))
+
+
+# --- Threads (Meta) ----------------------------------------------------------
+
+def save_threads_posts(posts: List[Dict[str, Any]]) -> int:
+    """Guarda publicaciones públicas de Threads (idempotente por post_id)."""
+    if not posts:
+        return 0
+    conn = _connect()
+    now = utcnow()
+    count = 0
+    for p in posts:
+        pid = str(p.get("post_id") or "").strip()
+        if not pid:
+            continue
+        conn.execute(
+            "INSERT OR REPLACE INTO threads_posts(post_id, username, code, url, text,"
+            " like_count, taken_at, media_type, tags, is_private, followers, bio, captured_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, p.get("username"), p.get("code"), p.get("url"), p.get("text"),
+             int(p.get("like_count") or 0), p.get("taken_at"), p.get("media_type"),
+             json.dumps(p.get("tags") or [], ensure_ascii=False),
+             1 if p.get("is_private") else 0, int(p.get("followers") or 0),
+             p.get("bio"), now),
+        )
+        count += 1
+    _close(conn)
+    if count:
+        log_ingest("threads", "perfiles y posts públicos de Threads", count)
+    return count
+
+
+def get_threads_posts(username: str = None) -> List[Dict[str, Any]]:
+    rows = _rows("SELECT * FROM threads_posts ORDER BY taken_at DESC")
+    for r in rows:
+        try:
+            r["tags"] = json.loads(r.get("tags") or "[]")
+        except (TypeError, ValueError):
+            r["tags"] = []
+    if username:
+        key = str(username).strip().lstrip("@").lower()
+        return [r for r in rows if (r.get("username") or "").lower() == key]
+    return rows
 
 
 def has_data() -> bool:

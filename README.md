@@ -34,6 +34,11 @@ local (SQLite) y muestra tendencias, KPIs y análisis de engagement.
 - **📅 Actividad diaria + registro de fuentes**: resumen del día (posts, likes,
   comentarios, menciones y seguidores netos) y un **log de qué fuente** aportó
   los datos y cuándo (`ingest log`).
+- **🏆 Índice de afinidad**: un puntaje por cuenta destacada combinando todas las
+  señales públicas, con desglose por tipo de señal.
+- **🧵 Threads (Meta)**: fuente **pública** vía el Actor oficial
+  `apify/threads-profile-api-scraper` — perfil, seguidores y publicaciones
+  recientes de tus cuentas destacadas. Sin login y sin cookies.
 - **Recomendador de limpieza**: cuentas que sigues y no te siguen de vuelta.
 - **Importar snapshots históricos** (JSON) para incorporar datos anteriores a Apify.
 - **Seguidores mutuos (mutuals)**: cruza ambas listas para ver quién te sigue y
