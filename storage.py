@@ -9,6 +9,7 @@ Para no perder ningún dato, además de las columnas estructuradas se conserva
 el JSON crudo (`raw_json`) de cada item tal como lo entrega Apify.
 """
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
@@ -1244,66 +1245,50 @@ def get_linkedin_activity(profile: str = None) -> List[Dict[str, Any]]:
 # --- Privacidad: limpieza de identificadores ---------------------------------
 
 def scrub_identifiers() -> int:
-    """Reemplaza usuarios/nombres reales por sus códigos públicos en toda la BD.
+    """Reemplaza usuarios/nombres reales por sus códigos públicos en TODA la BD.
 
-    Es **idempotente** y se ejecuta al arrancar la app, así que también limpia la
-    base remota (Turso) sin intervención manual. El mapeo real→código vive solo
-    en `.env` / secretos, nunca en el repo.
+    Recorre **todas las columnas de texto de todas las tablas** (incluidos los
+    `raw_json`, URLs, captions y logs), así que no se le escapa ningún rincón.
+    Es **idempotente** y se ejecuta al arrancar la app, por lo que también limpia
+    la base remota (Turso). El mapeo real→código vive solo en `.env` / secretos.
     """
-    pairs = [(real.lower(), code) for code, real in config.watch_map().items()]
-    pairs += [(i.lower(), config.DISPLAY_NAME) for i in config.personal_identifiers()]
-
-    targets = [
-        ("watchlist", "username"),
-        ("threads_posts", "username"),
-        ("account_profiles", "username"),
-        ("story_mentions", "source_username"),
-        ("story_mentions", "mentioned_username"),
-        ("linkedin_profiles", "identifier"),
-        ("linkedin_profiles", "name"),
-        ("linkedin_activity", "profile"),
-        ("linkedin_activity", "author_id"),
-        ("linkedin_activity", "reposted_by"),
-        ("linkedin_activity", "author_name"),
-        ("linkedin_activity", "reposted_by_name"),
-        ("external_posts", "account"),
-        ("external_comments", "account"),
-        ("external_comments", "owner_username"),
-        ("comments", "owner_username"),
-        ("mentions", "owner_username"),
-        ("relation_history", "username"),
-        ("relation_events", "username"),
-    ]
+    pairs = [(real, code) for code, real in config.watch_map().items() if real]
+    pairs += [(i, config.DISPLAY_NAME) for i in config.personal_identifiers() if i]
 
     conn = _connect()
     total = 0
-    for table, col in targets:
-        for real, code in pairs:
-            if not real or real == code.lower():
-                continue
-            try:
-                cur = conn.execute(
-                    f"UPDATE {table} SET {col} = ? WHERE LOWER({col}) = ?", (code, real))
-                total += cur.rowcount or 0
-            except Exception:  # noqa: BLE001
-                continue
+    tablas = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+        " AND name NOT LIKE 'sqlite_%'").fetchall()]
 
-    # Nombres visibles ("Nombre Apellido") cuya fila ya tiene un código/personal
-    for table, id_col, name_col in [
-        ("linkedin_activity", "author_id", "author_name"),
-        ("linkedin_activity", "reposted_by", "reposted_by_name"),
-    ]:
-        for _real, code in pairs:
+    for tabla in tablas:
+        try:
+            cols = [r[1] for r in conn.execute(f"PRAGMA table_info({tabla})").fetchall()]
+        except Exception:  # noqa: BLE001
+            continue
+        for col in cols:
             try:
-                cur = conn.execute(
-                    f"UPDATE {table} SET {name_col} = ? WHERE {id_col} = ?", (code, code))
-                total += cur.rowcount or 0
+                filas = conn.execute(
+                    f"SELECT rowid, {col} FROM {tabla} WHERE {col} IS NOT NULL").fetchall()
             except Exception:  # noqa: BLE001
                 continue
-    try:
-        conn.execute("UPDATE linkedin_profiles SET name = identifier")
-    except Exception:  # noqa: BLE001
-        pass
+            for rid, valor in filas:
+                if not isinstance(valor, str):
+                    continue
+                nuevo = valor
+                for real, code in pairs:
+                    if real.lower() != code.lower() and real.lower() in nuevo.lower():
+                        nuevo = re.sub(re.escape(real), code, nuevo, flags=re.IGNORECASE)
+                if nuevo != valor:
+                    try:
+                        conn.execute(f"UPDATE {tabla} SET {col} = ? WHERE rowid = ?",
+                                     (nuevo, rid))
+                        total += 1
+                    except Exception:  # noqa: BLE001
+                        continue
+
+    _close(conn)
+    return total
 
     _close(conn)
     return total
