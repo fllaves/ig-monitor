@@ -24,6 +24,14 @@ st.set_page_config(
 
 def load_all() -> Dict[str, Any]:
     storage.init_db()
+    # Privacidad: borra nombres/usuarios reales de la BD (también la remota).
+    # Se ejecuta una vez por sesión para no castigar cada rerun.
+    if not st.session_state.get("_scrubbed"):
+        try:
+            storage.scrub_identifiers()
+        except Exception:  # noqa: BLE001
+            pass
+        st.session_state["_scrubbed"] = True
     if not storage.get_watchlist():
         storage.add_watch_accounts(config.WATCHLIST)
     history = storage.get_profile_history()

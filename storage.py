@@ -1116,7 +1116,7 @@ def save_threads_posts(posts: List[Dict[str, Any]]) -> int:
             "INSERT OR REPLACE INTO threads_posts(post_id, username, code, url, text,"
             " like_count, taken_at, media_type, tags, is_private, followers, bio, captured_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (pid, p.get("username"), p.get("code"), p.get("url"), p.get("text"),
+            (pid, config.to_code(p.get("username")), p.get("code"), p.get("url"), p.get("text"),
              int(p.get("like_count") or 0), p.get("taken_at"), p.get("media_type"),
              json.dumps(p.get("tags") or [], ensure_ascii=False),
              1 if p.get("is_private") else 0, int(p.get("followers") or 0),
@@ -1187,14 +1187,21 @@ def save_linkedin_activity(profile: str, items: List[Dict[str, Any]]) -> int:
         pid = str(it.get("post_id") or "").strip()
         if not pid:
             continue
+        raw_author = it.get("author_id") or ""
+        raw_repost = it.get("reposted_by") or ""
+        author_id = config.to_code(raw_author)
+        reposted_by = config.to_code(raw_repost)
+        # Si el identificador era de una cuenta conocida, el nombre visible pasa a ser el código
+        author_name = author_id if author_id != raw_author else (it.get("author_name") or "")
+        reposted_name = reposted_by if reposted_by != raw_repost else (it.get("reposted_by_name") or "")
         conn.execute(
             "INSERT OR REPLACE INTO linkedin_activity(post_id, profile, author_name, author_id,"
             " author_info, content, url, posted_at, reposted_by, reposted_by_name, reposted_at,"
             " likes, comments, shares, captured_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (pid, (profile or "").lower(), it.get("author_name"), it.get("author_id"),
+            (pid, config.to_code(profile), author_name, author_id,
              it.get("author_info"), it.get("content"), it.get("url"), it.get("posted_at"),
-             it.get("reposted_by"), it.get("reposted_by_name"), it.get("reposted_at"),
+             reposted_by, reposted_name, it.get("reposted_at"),
              int(it.get("likes") or 0), int(it.get("comments") or 0),
              int(it.get("shares") or 0), now),
         )
@@ -1212,6 +1219,74 @@ def get_linkedin_activity(profile: str = None) -> List[Dict[str, Any]]:
         key = _linkedin_identifier(profile)
         return [r for r in rows if (r.get("profile") or "").lower() == key]
     return rows
+
+
+# --- Privacidad: limpieza de identificadores ---------------------------------
+
+def scrub_identifiers() -> int:
+    """Reemplaza usuarios/nombres reales por sus códigos públicos en toda la BD.
+
+    Es **idempotente** y se ejecuta al arrancar la app, así que también limpia la
+    base remota (Turso) sin intervención manual. El mapeo real→código vive solo
+    en `.env` / secretos, nunca en el repo.
+    """
+    pairs = [(real.lower(), code) for code, real in config.watch_map().items()]
+    pairs += [(i.lower(), config.DISPLAY_NAME) for i in config.personal_identifiers()]
+
+    targets = [
+        ("watchlist", "username"),
+        ("threads_posts", "username"),
+        ("account_profiles", "username"),
+        ("story_mentions", "source_username"),
+        ("story_mentions", "mentioned_username"),
+        ("linkedin_profiles", "identifier"),
+        ("linkedin_profiles", "name"),
+        ("linkedin_activity", "profile"),
+        ("linkedin_activity", "author_id"),
+        ("linkedin_activity", "reposted_by"),
+        ("linkedin_activity", "author_name"),
+        ("linkedin_activity", "reposted_by_name"),
+        ("external_posts", "account"),
+        ("external_comments", "account"),
+        ("external_comments", "owner_username"),
+        ("comments", "owner_username"),
+        ("mentions", "owner_username"),
+        ("relation_history", "username"),
+        ("relation_events", "username"),
+    ]
+
+    conn = _connect()
+    total = 0
+    for table, col in targets:
+        for real, code in pairs:
+            if not real or real == code.lower():
+                continue
+            try:
+                cur = conn.execute(
+                    f"UPDATE {table} SET {col} = ? WHERE LOWER({col}) = ?", (code, real))
+                total += cur.rowcount or 0
+            except Exception:  # noqa: BLE001
+                continue
+
+    # Nombres visibles ("Nombre Apellido") cuya fila ya tiene un código/personal
+    for table, id_col, name_col in [
+        ("linkedin_activity", "author_id", "author_name"),
+        ("linkedin_activity", "reposted_by", "reposted_by_name"),
+    ]:
+        for _real, code in pairs:
+            try:
+                cur = conn.execute(
+                    f"UPDATE {table} SET {name_col} = ? WHERE {id_col} = ?", (code, code))
+                total += cur.rowcount or 0
+            except Exception:  # noqa: BLE001
+                continue
+    try:
+        conn.execute("UPDATE linkedin_profiles SET name = identifier")
+    except Exception:  # noqa: BLE001
+        pass
+
+    _close(conn)
+    return total
 
 
 def has_data() -> bool:

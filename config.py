@@ -66,13 +66,24 @@ def _int(name: str, default: int) -> int:
 USERNAME = _get("IG_USERNAME", "").strip().lstrip("@")
 DISPLAY_NAME = _get("DISPLAY_NAME", "IG FV").strip() or "IG FV"
 PROFILE_URL = f"https://www.instagram.com/{USERNAME}/" if USERNAME else ""
+# Identificador público de LinkedIn (también privado: solo en .env / secrets)
+LINKEDIN_PROFILE = _get("LINKEDIN_PROFILE", "").strip().lstrip("@")
+
+
+def personal_identifiers() -> list:
+    """Todo lo que identifica al dueño del proyecto y NO debe mostrarse."""
+    extra = [p.strip().lstrip("@") for p in _get("PERSONAL_IDS", "").split(",") if p.strip()]
+    return [i for i in [USERNAME, LINKEDIN_PROFILE, *extra] if i]
 
 
 def mask(text):
-    """Oculta cualquier aparición del username real en textos mostrados."""
-    if not text or not USERNAME:
+    """Oculta cualquier aparición de un identificador personal en textos mostrados."""
+    if not text:
         return text
-    return re.sub(re.escape(USERNAME), DISPLAY_NAME, str(text), flags=re.IGNORECASE)
+    out = str(text)
+    for ident in personal_identifiers():
+        out = re.sub(re.escape(ident), DISPLAY_NAME, out, flags=re.IGNORECASE)
+    return out
 
 # --- Apify -------------------------------------------------------------------
 APIFY_TOKEN = _get("APIFY_TOKEN", "").strip()
@@ -85,8 +96,6 @@ FOLLOWERS_ACTOR_ID = _get("FOLLOWERS_ACTOR_ID", "apify~instagram-followers-follo
 THREADS_ACTOR_ID = _get("THREADS_ACTOR_ID", "apify~threads-profile-api-scraper")
 # Actor de LinkedIn: actividad pública de un perfil (posts y reposts), sin cookies
 LINKEDIN_ACTOR_ID = _get("LINKEDIN_ACTOR_ID", "harvestapi~linkedin-profile-posts")
-# Tu identificador público de LinkedIn (para detectar quién comparte tu contenido)
-LINKEDIN_PROFILE = _get("LINKEDIN_PROFILE", "")
 
 RESULTS_LIMIT = _int("RESULTS_LIMIT", 100)
 FOLLOWERS_LIMIT = _int("FOLLOWERS_LIMIT", 200)
@@ -103,11 +112,45 @@ TELEGRAM_CHAT_ID = _get("TELEGRAM_CHAT_ID", "").strip()
 ALERT_VIEWS_THRESHOLD = _int("ALERT_VIEWS_THRESHOLD", 0)
 
 # --- Cuentas destacadas (watchlist) ------------------------------------------
+# En el código, el panel y la base de datos SOLO se usan códigos neutros.
+# El mapeo código → usuario real vive ÚNICAMENTE en `.env` / secretos:
+#   WATCH_MAP=PP:usuario1,DRZ:usuario2,...
 # Se siembran la primera vez; luego puedes añadir/quitar desde el panel.
 WATCHLIST = [u.strip().lstrip("@") for u in _get(
-    "WATCHLIST",
-    "PP,BC,F,JU,DRZ",
+    "WATCHLIST", "PP,DRZ,JU,BC,F",
 ).split(",") if u.strip()]
+
+
+def watch_map() -> dict:
+    """Mapeo código público → usuario real. Fuente privada (.env / secrets)."""
+    out = {}
+    for pair in _get("WATCH_MAP", "").split(","):
+        if ":" in pair:
+            code, real = pair.split(":", 1)
+            code = code.strip().lstrip("@").upper()
+            real = real.strip().lstrip("@").lower()
+            if code and real:
+                out[code] = real
+    return out
+
+
+def real_username(code_or_name: str) -> str:
+    """Traduce un código a su usuario real (solo para llamar a las APIs)."""
+    value = str(code_or_name or "").strip().lstrip("@")
+    return watch_map().get(value.upper(), value)
+
+
+def to_code(value: str) -> str:
+    """Traduce un usuario real a su código público (para mostrar y guardar)."""
+    raw = str(value or "").strip().lstrip("@")
+    low = raw.lower()
+    for code, real in watch_map().items():
+        if real == low:
+            return code
+    for ident in personal_identifiers():
+        if ident.lower() == low:
+            return DISPLAY_NAME
+    return raw
 
 # --- Almacenamiento ----------------------------------------------------------
 # Base local por defecto. Si defines DATABASE_URL (libsql://... de Turso),

@@ -13,7 +13,7 @@ Instalación (una vez):
     python3 -m playwright install chromium
 
 Uso (cierra Brave antes):
-    python3 burner_highlights.py --me TU_USUARIO --accounts PP,BC
+    python3 burner_highlights.py --me TU_USUARIO --accounts CUENTA_1,CUENTA_2
     python3 burner_highlights.py --me TU_USUARIO --accounts TU_USUARIO,otra  # incluye las tuyas
 """
 import argparse

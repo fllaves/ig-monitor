@@ -140,19 +140,21 @@ def do_watch_sync(token: str = "", accounts: list = None,
         summary["errors"].append("Sin cuentas destacadas.")
         return summary
 
+    # El panel y la BD usan códigos: se traducen a usuario real solo para la API
+    real_accounts = [config.real_username(a) for a in accounts]
     src = InstagramSource(token or config.APIFY_TOKEN)
     captured_at = storage.utcnow()
 
     posts = []
     try:
-        posts = src.fetch_profiles_posts(accounts, limit=posts_per_account)
+        posts = src.fetch_profiles_posts(real_accounts, limit=posts_per_account)
         summary["posts"] = storage.save_external_posts(posts, captured_at)
     except Exception as exc:  # noqa: BLE001
         summary["errors"].append(f"posts: {exc}")
 
     source_by_post = {}
     for p in posts:
-        owner = (p.get("ownerUsername") or "").lower()
+        owner = config.to_code((p.get("ownerUsername") or "").lower())
         if p.get("url"):
             source_by_post[p["url"]] = owner
         if p.get("shortCode"):
@@ -201,7 +203,9 @@ def do_threads_sync(token: str = None, accounts: List[str] = None) -> Dict:
         return summary
 
     try:
-        posts = ThreadsSource(token).fetch_posts(names)
+        # El panel y la BD usan códigos: se traducen a usuario real solo para la API
+        posts = ThreadsSource(token).fetch_posts(
+            [config.real_username(n) for n in names])
         summary["posts"] = storage.save_threads_posts(posts)
         summary["found"] = len({p.get("username") for p in posts})
     except Exception as exc:  # noqa: BLE001

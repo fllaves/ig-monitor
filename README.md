@@ -199,7 +199,7 @@ El panel **no** lo ejecuta: corre en tu Mac y usa la sesión del navegador.
 pip install requests browser_cookie3
 # cierra Brave antes de ejecutarlo
 python burner_scrape.py --username TU_USUARIO \
-    --watchlist PP,BC,F,JU,DRZ
+    --watchlist CUENTA_1,CUENTA_2,CUENTA_3
 ```
 
 Genera dos archivos que se suben al panel:

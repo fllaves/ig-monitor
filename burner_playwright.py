@@ -14,7 +14,7 @@ Instalación (una vez):
 Uso:
     # cierra Brave antes
     python3 burner_playwright.py --username TU_USUARIO \
-        --watchlist PP,BC,F,JU,DRZ
+        --watchlist CUENTA_1,CUENTA_2,CUENTA_3
 """
 import argparse
 import json
