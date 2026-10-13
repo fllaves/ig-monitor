@@ -898,7 +898,7 @@ if watch:
                     "Comentario": config.mask(c.get("text") or ""),
                     "Post": c.get("post_url") or "",
                 } for c in wi["my_comments_on_theirs"]], width="stretch", hide_index=True,
-                    column_config={"Post": st.column_config.LinkColumn("Post")})
+                    column_config={"Post": st.column_config.LinkColumn("Post", display_text="🔗 Abrir")})
             if wi["their_comments_on_mine"]:
                 st.markdown("**Sus comentarios en tus publicaciones**")
                 st.dataframe([{
@@ -922,7 +922,7 @@ if watch:
             } for s in (wi["stories_from_them"] + wi["stories_of_me"])]
             if story_rows:
                 st.dataframe(story_rows, width="stretch", hide_index=True,
-                             column_config={"Enlace": st.column_config.LinkColumn("Enlace")})
+                             column_config={"Enlace": st.column_config.LinkColumn("Enlace", display_text="🔗 Abrir")})
             else:
                 st.caption("Sin menciones de historias registradas. Las de **ellas** requieren "
                            "la burner (o sesión); las **tuyas**, tu sesión: son efímeras y "
@@ -946,7 +946,7 @@ if watch:
                     "Likes": t.get("like_count"),
                     "Enlace": t.get("url") or "",
                 } for t in tposts], width="stretch", hide_index=True,
-                    column_config={"Enlace": st.column_config.LinkColumn("Enlace")})
+                    column_config={"Enlace": st.column_config.LinkColumn("Enlace", display_text="🔗 Abrir")})
             else:
                 st.caption("Sin datos de Threads. Pulsa **«🧵 Sincronizar Threads»** en el "
                            "gestor de abajo (solo funciona si su perfil es público).")
@@ -960,7 +960,7 @@ if watch:
                         "Comentarios": p.get("comments_count"),
                         "URL": p.get("url") or "",
                     } for p in wi["their_posts"][:30]], width="stretch", hide_index=True,
-                        column_config={"URL": st.column_config.LinkColumn("URL")})
+                        column_config={"URL": st.column_config.LinkColumn("URL", display_text="🔗 Abrir")})
             if not (wi["my_comments_on_theirs"] or wi["their_comments_on_mine"] or wi["their_posts"]):
                 st.caption("Sin interacción descargada todavía → usa "
                            "«🔄 Sincronizar interacciones» abajo.")
@@ -1177,7 +1177,7 @@ if li_profiles:
                 "Tu contenido": "✅" if me_li and (a.get("author_id") or "").lower() == me_li else "",
                 "Enlace": a.get("url") or "",
             } for a in li_activity], width="stretch", hide_index=True,
-                column_config={"Enlace": st.column_config.LinkColumn("Enlace")})
+                column_config={"Enlace": st.column_config.LinkColumn("Enlace", display_text="🔗 Abrir")})
 else:
     st.caption("Añade perfiles de LinkedIn en el gestor de arriba para empezar a "
                "monitorizar su actividad pública.")

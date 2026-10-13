@@ -241,6 +241,29 @@ en GitHub → *Settings → Secrets and variables → Actions*: `APIFY_TOKEN`,
 
 📋 **Estado y pendientes**: ver [`ROADMAP.md`](ROADMAP.md).
 
+## Privacidad: códigos neutros
+
+En el **repo, el panel y la base de datos** nunca aparecen nombres de usuario
+reales ni el del dueño del proyecto. Se usan **códigos**:
+
+| Código | Qué es |
+|---|---|
+| `PP`, `DRZ`, `JU`, `BC`, `F` | Cuentas destacadas |
+| `IG FV` | El dueño del proyecto |
+
+El mapeo real vive **solo** en `.env` / *Streamlit Secrets* (nunca en git):
+
+```dotenv
+WATCH_MAP=PP:usuario1,DRZ:usuario2,JU:usuario3,BC:usuario4,F:usuario5
+WATCHLIST=PP,DRZ,JU,BC,F
+LINKEDIN_PROFILE=tu-usuario-linkedin
+```
+
+- `config.real_username()` traduce código → real **solo** al llamar a las APIs.
+- `config.to_code()` y `config.mask()` hacen lo contrario al mostrar y guardar.
+- `storage.scrub_identifiers()` limpia la base (incluida Turso) al arrancar.
+- Los enlaces usan `display_text` para que la URL real no se vea en pantalla.
+
 ## Solución de problemas
 
 - **"Falta APIFY_TOKEN"**: crea `.env` y pega tu token, o define la variable
