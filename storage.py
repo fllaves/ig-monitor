@@ -11,10 +11,22 @@ el JSON crudo (`raw_json`) de cada item tal como lo entrega Apify.
 import json
 import re
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 import config
+
+# Último error de escritura (para no fallar en silencio)
+LAST_DB_ERROR = None
+
+
+def _safe_int(value) -> int:
+    """Convierte a entero sin romperse con valores inesperados de la API."""
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def utcnow() -> str:
@@ -72,16 +84,27 @@ def _connect_remote():
 
 
 def _close(conn) -> None:
-    """Commit + sync (si es remoto) + cierre, registrando errores."""
+    """Commit + sync (si es remoto) + cierre, registrando errores.
+
+    Un fallo al confirmar significa **pérdida silenciosa de datos**, así que se
+    guarda en `LAST_DB_ERROR` y se muestra en el panel en vez de ignorarse.
+    """
+    global LAST_DB_ERROR
     try:
         conn.commit()
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        LAST_DB_ERROR = f"commit: {exc}"
+        print(f"⚠️ No se pudo confirmar la transacción: {exc}", file=sys.stderr)
     _sync(conn)
     try:
         conn.close()
     except Exception:  # noqa: BLE001
         pass
+
+
+def last_db_error() -> str:
+    """Último error de escritura registrado (vacío si todo fue bien)."""
+    return LAST_DB_ERROR or _LAST_REMOTE_ERROR or ""
 
 
 def diagnose() -> dict:
@@ -1138,9 +1161,9 @@ def save_threads_posts(posts: List[Dict[str, Any]]) -> int:
             " like_count, taken_at, media_type, tags, is_private, followers, bio, captured_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (pid, config.to_code(p.get("username")), p.get("code"), p.get("url"), p.get("text"),
-             int(p.get("like_count") or 0), p.get("taken_at"), p.get("media_type"),
+             _safe_int(p.get("like_count")), p.get("taken_at"), p.get("media_type"),
              json.dumps(p.get("tags") or [], ensure_ascii=False),
-             1 if p.get("is_private") else 0, int(p.get("followers") or 0),
+             1 if p.get("is_private") else 0, _safe_int(p.get("followers")),
              p.get("bio"), now),
         )
         count += 1
@@ -1223,8 +1246,8 @@ def save_linkedin_activity(profile: str, items: List[Dict[str, Any]]) -> int:
             (pid, config.to_code(profile), author_name, author_id,
              it.get("author_info"), it.get("content"), it.get("url"), it.get("posted_at"),
              reposted_by, reposted_name, it.get("reposted_at"),
-             int(it.get("likes") or 0), int(it.get("comments") or 0),
-             int(it.get("shares") or 0), now),
+             _safe_int(it.get("likes")), _safe_int(it.get("comments")),
+             _safe_int(it.get("shares")), now),
         )
         count += 1
     _close(conn)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import config
@@ -29,14 +29,46 @@ PALETTE = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#a855f7"]
 
 # --- Utilidades --------------------------------------------------------------
 
-def _parse_dt(value: Optional[str]) -> Optional[datetime]:
-    if not value:
+def _parse_dt(value) -> Optional[datetime]:
+    """Parsea una fecha ISO **o** un timestamp Unix. Nunca lanza excepción.
+
+    **Siempre** devuelve un datetime *aware* en UTC: mezclar naive y aware al
+    ordenar hacía que una sola publicación sin fecha tumbara todo el panel.
+    """
+    if value is None or value == "":
         return None
-    try:
-        s = value.replace("Z", "+00:00")
-        return datetime.fromisoformat(s)
-    except (ValueError, TypeError):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            dt = datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            return None
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (ValueError, TypeError, AttributeError):
+            return None
+    if dt is None:
         return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _as_day(value) -> str:
+    """Devuelve 'YYYY-MM-DD' de una fecha ISO o de un timestamp Unix."""
+    if value is None or value == "":
+        return ""
+    if isinstance(value, str) and len(value) >= 10 and value[4:5] == "-":
+        return value[:10]
+    dt = _parse_dt(value)
+    return dt.strftime("%Y-%m-%d") if dt else ""
+
+
+def _dicts(seq) -> List[Dict]:
+    """Filtra solo diccionarios (un `None` suelto en la lista no debe romper nada)."""
+    return [x for x in (seq or []) if isinstance(x, dict)]
+
+
+# Mínimo comparable con datetimes *aware* (para ordenar sin mezclar naive/aware)
+_DT_MIN = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def content_type(post: Dict) -> str:
@@ -51,17 +83,40 @@ def content_type(post: Dict) -> str:
     return "Foto"
 
 
-def _engagement_rate(post: Dict, followers: int) -> float:
+def _num(value) -> float:
+    """Convierte a número de forma segura.
+
+    La API a veces devuelve los contadores como texto (`"872"`) y, ante un valor
+    inesperado (`"abc"`, `None`, `""`, `inf`), un `int()` directo **tumbaría el
+    panel entero**. Aquí un valor inválido vale 0 en vez de romper la página.
+    """
+    try:
+        if value is None or value == "" or isinstance(value, bool):
+            return 0.0
+        out = float(str(value).strip())
+        if out != out or out in (float("inf"), float("-inf")):
+            return 0.0
+        return out
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+
+
+def _int(value) -> int:
+    return int(_num(value))
+
+
+def _engagement_rate(post: Dict, followers) -> float:
+    followers = _num(followers)
     if not followers:
         return 0.0
-    likes = post.get("likesCount") or 0
-    comments = post.get("commentsCount") or 0
+    likes = _num(post.get("likesCount"))
+    comments = _num(post.get("commentsCount"))
     return (likes + comments) / followers * 100
 
 
-def enrich_posts(posts: List[Dict], followers: int) -> List[Dict]:
+def enrich_posts(posts: List[Dict], followers) -> List[Dict]:
     out = []
-    for p in posts:
+    for p in _dicts(posts):
         d = dict(p)
         d["content_type"] = content_type(p)
         dt = _parse_dt(p.get("published_at") or p.get("timestamp"))
@@ -71,7 +126,7 @@ def enrich_posts(posts: List[Dict], followers: int) -> List[Dict]:
         d["engagement_rate"] = round(_engagement_rate(p, followers), 3)
         d["hashtag_list"] = p.get("hashtags") or []
         out.append(d)
-    out.sort(key=lambda x: (x.get("dt") or datetime.min), reverse=True)
+    out.sort(key=lambda x: (x.get("dt") or _DT_MIN), reverse=True)
     return out
 
 
@@ -79,20 +134,23 @@ def enrich_posts(posts: List[Dict], followers: int) -> List[Dict]:
 
 def compute_kpis(posts: List[Dict], latest_profile: Optional[Dict],
                  prev_profile: Optional[Dict]) -> Dict[str, Any]:
-    followers = (latest_profile or {}).get("followers_count") or 0
-    prev_followers = (prev_profile or {}).get("followers_count") or 0
+    posts = _dicts(posts)
+    followers = _num((latest_profile or {}).get("followers_count"))
+    prev_followers = _num((prev_profile or {}).get("followers_count"))
 
-    likes = [p.get("likesCount") or 0 for p in posts if p.get("likesCount") not in (None, -1)]
-    comments = [p.get("commentsCount") or 0 for p in posts]
+    likes = [_num(p.get("likesCount")) for p in posts
+             if str(p.get("likesCount")) not in ("None", "-1", "")]
+    comments = [_num(p.get("commentsCount")) for p in posts]
 
     def avg(vals):
         return round(sum(vals) / len(vals), 1) if vals else 0.0
 
     return {
-        "followers": followers,
-        "followers_delta": followers - prev_followers if prev_followers else None,
-        "following": (latest_profile or {}).get("follows_count"),
-        "posts": (latest_profile or {}).get("posts_count") or len(posts),
+        # Los contadores se devuelven como int: la app los formatea con %d/%,d
+        "followers": _int(followers),
+        "followers_delta": (_int(followers) - _int(prev_followers)) if prev_followers else None,
+        "following": _int((latest_profile or {}).get("follows_count")),
+        "posts": _int((latest_profile or {}).get("posts_count")) or len(posts),
         "avg_likes": avg(likes),
         "avg_comments": avg(comments),
         "avg_engagement_rate": round(avg(
@@ -167,6 +225,8 @@ def _rel_key(row: Dict) -> str:
     Empareja por username (en minúsculas), que es lo único que comparten el
     snapshot histórico y los datos de Apify; si no hay username, usa user_id.
     """
+    if not isinstance(row, dict):
+        return ""
     username = (row.get("username") or "").strip().lower()
     return username or str(row.get("user_id") or "")
 
@@ -188,7 +248,7 @@ def relation_counts_series(history: List[Dict]) -> List[Dict]:
 
 def relation_delta(history: List[Dict], relation_type: str) -> Optional[Dict[str, Any]]:
     """Compara las dos últimas fechas para detectar altas y bajas."""
-    rows = [h for h in history if h["relation_type"] == relation_type]
+    rows = [h for h in _dicts(history) if h.get("relation_type") == relation_type]
     dates = sorted({h["captured_at"] for h in rows})
     if len(dates) < 2:
         return None
@@ -256,7 +316,7 @@ def build_relation_events(relation_history: List[Dict]) -> List[Dict]:
 
 def relation_members(history: List[Dict], relation_type: str) -> List[Dict]:
     """Miembros actuales de una lista, con primera y última fecha vistas."""
-    rows = [h for h in history if h["relation_type"] == relation_type]
+    rows = [h for h in _dicts(history) if h.get("relation_type") == relation_type]
     dates = sorted({h["captured_at"] for h in rows})
     if not dates:
         return []
@@ -334,7 +394,7 @@ def category_distribution(members: List[Dict], profiles: Dict[str, Dict],
 
 def follow_retention(history: List[Dict], relation_type: str = "following") -> Optional[Dict]:
     """De las cuentas de la PRIMERA foto, cuántas siguen en la ÚLTIMA."""
-    rows = [h for h in history if h["relation_type"] == relation_type]
+    rows = [h for h in _dicts(history) if h.get("relation_type") == relation_type]
     dates = sorted({h["captured_at"] for h in rows})
     if len(dates) < 2:
         return None
@@ -410,7 +470,7 @@ def re_follows(events: List[Dict]) -> List[Dict]:
 
 def unfollow_anomalies(events: List[Dict]) -> List[Dict]:
     """Bajas por fecha, marcando picos anómalos."""
-    lost = [e for e in events or [] if str(e.get("event_type", "")).startswith("lost")]
+    lost = [e for e in _dicts(events) if str(e.get("event_type", "")).startswith("lost")]
     by_date = Counter((e.get("detected_at") or "")[:10] for e in lost)
     if not by_date:
         return []
@@ -432,7 +492,7 @@ def account_card(history: List[Dict], events: List[Dict], profiles: Dict[str, Di
     rows = [h for h in history if _rel_key(h) == key]
     info = rows[-1] if rows else {}
     prof = profiles.get(key) or {}
-    evs = [e for e in (events or [])
+    evs = [e for e in _dicts(events)
            if (e.get("username") or "").strip().lower() == key]
     username = info.get("username") or prof.get("username") or identifier
 
@@ -450,8 +510,8 @@ def account_card(history: List[Dict], events: List[Dict], profiles: Dict[str, Di
         "events": sorted(evs, key=lambda e: e.get("detected_at") or "", reverse=True),
         "profile_url": f"https://www.instagram.com/{username}/",
         "enriched": bool(prof),
-        "profile_followers": prof.get("followers_count"),
-        "profile_posts": prof.get("posts_count"),
+        "profile_followers": _int(prof.get("followers_count")),
+        "profile_posts": _int(prof.get("posts_count")),
         "verified": bool(prof.get("is_verified")) if prof else None,
         "private": bool(prof.get("is_private")) if prof else None,
         "latest_posts": _parse_latest(prof.get("latest_posts_json")),
@@ -536,17 +596,17 @@ def watch_interactions(external_posts: List[Dict], external_comments: List[Dict]
     def owner(row) -> str:
         return (row.get("owner_username") or "").strip().lstrip("@").lower()
 
-    their_posts = [p for p in (external_posts or [])
+    their_posts = [p for p in _dicts(external_posts)
                    if (p.get("source_username") or "").strip().lower() == w]
 
-    ext = external_comments or []
+    ext = _dicts(external_comments)
     my_comments_on_theirs = [c for c in ext
                              if (c.get("source_username") or "").strip().lower() == w
                              and owner(c) == me_key]
     their_comments = [c for c in ext if owner(c) == w]
-    their_comments_on_mine = [c for c in (my_post_comments or []) if owner(c) == w]
+    their_comments_on_mine = [c for c in _dicts(my_post_comments) if owner(c) == w]
 
-    sm = story_mentions or []
+    sm = _dicts(story_mentions)
     stories_from_them = [s for s in sm
                          if (s.get("source_username") or "").strip().lower() == w]
     stories_of_me = [s for s in sm
@@ -604,7 +664,7 @@ def interaction_index(history: List[Dict], events: List[Dict], posts: List[Dict]
         d["follow_events"] += 1
         d["last"] = max(d["last"], (e.get("detected_at") or "")[:10])
 
-    for p in posts or []:
+    for p in _dicts(posts):
         for m in (p.get("mentions") or []):
             d = entry(m)
             if d is None:
@@ -678,8 +738,8 @@ _NEGATIVE = ["mal", "malo", "mala", "pésimo", "horrible", "no me gusta", "asco"
              "pésimo", "decepci", "mala onda"]
 
 
-def sentiment(text: Optional[str]) -> str:
-    t = (text or "").lower()
+def sentiment(text) -> str:
+    t = str(text or "").lower()
     pos = sum(1 for w in _POSITIVE if w in t)
     neg = sum(1 for w in _NEGATIVE if w in t)
     if pos > neg:
@@ -690,6 +750,7 @@ def sentiment(text: Optional[str]) -> str:
 
 
 def comment_stats(comments: List[Dict]) -> Dict[str, Any]:
+    comments = _dicts(comments)
     total = len(comments)
     sent = Counter(sentiment(c.get("text")) for c in comments)
     commenters = Counter(c.get("owner_username") for c in comments if c.get("owner_username"))
@@ -830,8 +891,8 @@ def fig_top_posts(data: List[Dict], metric: str = "likes") -> go.Figure:
 
 def fig_engagement_scatter(posts: List[Dict]) -> go.Figure:
     _need_plotly()
-    x = [p.get("likesCount") or 0 for p in posts]
-    y = [p.get("commentsCount") or 0 for p in posts]
+    x = [_num(p.get("likesCount")) for p in posts]
+    y = [_num(p.get("commentsCount")) for p in posts]
     fig = go.Figure(go.Scatter(
         x=x, y=y, mode="markers",
         marker=dict(color=DEFAULT_COLOR, size=9, opacity=0.7),
@@ -961,20 +1022,20 @@ def daily_digest(events: List[Dict], posts: List[Dict], comments: List[Dict],
     day = day or datetime.utcnow().strftime("%Y-%m-%d")
 
     def on(value) -> bool:
-        return (value or "")[:10] == day
+        return _as_day(value) == day
 
     def ev(kind: str) -> List[Dict]:
-        return [e for e in (events or [])
+        return [e for e in _dicts(events)
                 if e.get("event_type") == kind and on(e.get("detected_at"))]
 
-    day_posts = [p for p in (posts or []) if on(p.get("timestamp"))]
+    day_posts = [p for p in _dicts(posts) if on(p.get("timestamp"))]
     new_fol, lost_fol = ev("new_follower"), ev("lost_follower")
     new_foing, lost_foing = ev("new_following"), ev("lost_following")
-    day_comments = [c for c in (comments or []) if on(c.get("timestamp"))]
-    day_mentions = [m for m in (mentions or []) if on(m.get("timestamp"))]
-    day_ingest = [i for i in (ingest or []) if on(i.get("ts"))]
+    day_comments = [c for c in _dicts(comments) if on(c.get("timestamp"))]
+    day_mentions = [m for m in _dicts(mentions) if on(m.get("timestamp"))]
+    day_ingest = [i for i in _dicts(ingest) if on(i.get("ts"))]
 
-    likes = sum((p.get("likesCount") or p.get("likes_count") or 0) for p in day_posts)
+    likes = sum((_num(p.get("likesCount")) or _num(p.get("likes_count"))) for p in day_posts)
     return {
         "day": day,
         "posts": len(day_posts),
@@ -1131,7 +1192,7 @@ def period_ranges(weeks: int = 8) -> List[Dict[str, Any]]:
 
 
 def _in_range(value, start: str, end: str) -> bool:
-    day = str(value or "")[:10]
+    day = _as_day(value)
     return bool(day) and start <= day <= end
 
 
@@ -1145,7 +1206,7 @@ def _hour_of(value):
 def top_commenters(comments: List[Dict], limit: int = 5) -> List[Dict]:
     """Quién comenta más (por autor)."""
     conteo: Dict[str, int] = {}
-    for c in comments or []:
+    for c in _dicts(comments):
         name = (c.get("owner_username") or "").strip()
         if name:
             conteo[name] = conteo.get(name, 0) + 1
@@ -1156,7 +1217,7 @@ def top_commenters(comments: List[Dict], limit: int = 5) -> List[Dict]:
 def peak_hours(posts: List[Dict], limit: int = 6) -> List[Dict]:
     """Horas del día (UTC) en las que más se publica."""
     conteo: Dict[int, int] = {}
-    for p in posts or []:
+    for p in _dicts(posts):
         h = _hour_of(p.get("timestamp"))
         if h is not None:
             conteo[h] = conteo.get(h, 0) + 1
@@ -1177,15 +1238,15 @@ def _actividad(n_posts: int) -> str:
 def period_report(posts: List[Dict], comments: List[Dict], mentions: List[Dict],
                   events: List[Dict], start: str, end: str) -> Dict[str, Any]:
     """Informe narrativo de un rango de fechas (YYYY-MM-DD)."""
-    pp = [p for p in (posts or []) if _in_range(p.get("timestamp"), start, end)]
-    cc = [c for c in (comments or []) if _in_range(c.get("timestamp"), start, end)]
-    mm = [m for m in (mentions or []) if _in_range(m.get("timestamp"), start, end)]
-    ev = [e for e in (events or []) if _in_range(e.get("detected_at"), start, end)]
+    pp = [p for p in _dicts(posts) if _in_range(p.get("timestamp"), start, end)]
+    cc = [c for c in _dicts(comments) if _in_range(c.get("timestamp"), start, end)]
+    mm = [m for m in _dicts(mentions) if _in_range(m.get("timestamp"), start, end)]
+    ev = [e for e in _dicts(events) if _in_range(e.get("detected_at"), start, end)]
 
     nuevos = [e for e in ev if e.get("event_type") == "new_follower"]
     perdidos = [e for e in ev if e.get("event_type") == "lost_follower"]
-    nuevos_posts_totales = sum(int(p.get("likesCount") or 0) for p in pp)
-    comentarios_totales = sum(int(p.get("commentsCount") or 0) for p in pp)
+    nuevos_posts_totales = sum(_int(p.get("likesCount")) for p in pp)
+    comentarios_totales = sum(_int(p.get("commentsCount")) for p in pp)
 
     horas = peak_hours(pp, limit=3)
     top = top_commenters(cc, limit=5)
@@ -1263,7 +1324,7 @@ def _words(text: str) -> List[str]:
 def top_terms(posts: List[Dict], limit: int = 20) -> List[Dict]:
     """Palabras más frecuentes en los textos de tus publicaciones."""
     conteo: Dict[str, int] = {}
-    for p in posts or []:
+    for p in _dicts(posts):
         for w in _words(p.get("caption")):
             conteo[w] = conteo.get(w, 0) + 1
     return [{"term": t, "count": n}
@@ -1273,13 +1334,13 @@ def top_terms(posts: List[Dict], limit: int = 20) -> List[Dict]:
 def performance_by_type(posts: List[Dict]) -> List[Dict]:
     """Rendimiento medio por tipo de contenido (Video, Image, Sidecar…)."""
     grupos: Dict[str, Dict] = {}
-    for p in posts or []:
+    for p in _dicts(posts):
         t = p.get("type") or "Otro"
         g = grupos.setdefault(t, {"type": t, "posts": 0, "likes": 0, "comments": 0, "views": 0})
         g["posts"] += 1
-        g["likes"] += int(p.get("likesCount") or 0)
-        g["comments"] += int(p.get("commentsCount") or 0)
-        g["views"] += int(p.get("videoViewCount") or 0)
+        g["likes"] += _int(p.get("likesCount"))
+        g["comments"] += _int(p.get("commentsCount"))
+        g["views"] += _int(p.get("videoViewCount"))
     out = []
     for g in grupos.values():
         n = g["posts"] or 1
@@ -1292,8 +1353,8 @@ def performance_by_type(posts: List[Dict]) -> List[Dict]:
 def best_posts(posts: List[Dict], limit: int = 8) -> List[Dict]:
     """Publicaciones con más engagement total (likes + comentarios)."""
     def peso(p):
-        return int(p.get("likesCount") or 0) + 3 * int(p.get("commentsCount") or 0)
-    return sorted(posts or [], key=peso, reverse=True)[:limit]
+        return _int(p.get("likesCount")) + 3 * _int(p.get("commentsCount"))
+    return sorted(_dicts(posts), key=peso, reverse=True)[:limit]
 
 
 def fig_terms(terms: List[Dict]) -> go.Figure:
@@ -1315,15 +1376,15 @@ def social_map_data(posts: List[Dict], comments: List[Dict], mentions: List[Dict
                     limit: int = 14) -> List[Dict]:
     """Cuentas con las que más interactúas, para dibujar el grafo."""
     conteo: Dict[str, int] = {}
-    for c in comments or []:
+    for c in _dicts(comments):
         u = (c.get("owner_username") or "").strip().lower()
         if u:
             conteo[u] = conteo.get(u, 0) + 2
-    for m in mentions or []:
+    for m in _dicts(mentions):
         u = (m.get("owner_username") or "").strip().lower()
         if u:
             conteo[u] = conteo.get(u, 0) + 3
-    for p in posts or []:
+    for p in _dicts(posts):
         for u in (p.get("mentions") or []):
             u = str(u).strip().lower()
             if u:

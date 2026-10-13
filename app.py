@@ -29,9 +29,15 @@ def load_all() -> Dict[str, Any]:
     if not st.session_state.get("_scrubbed"):
         try:
             storage.scrub_identifiers()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Nunca silenciar: si falla, los nombres reales seguirían a la vista.
+            st.session_state["_scrub_error"] = str(exc)[:200]
         st.session_state["_scrubbed"] = True
+    if st.session_state.get("_scrub_error"):
+        st.warning("⚠️ No se pudo limpiar la base de datos de identificadores: "
+                   f"{st.session_state['_scrub_error']}")
+    if storage.last_db_error():
+        st.warning(f"⚠️ Último error de base de datos: {storage.last_db_error()}")
     if not storage.get_watchlist():
         storage.add_watch_accounts(config.WATCHLIST)
     history = storage.get_profile_history()
