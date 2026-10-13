@@ -37,6 +37,12 @@ local (SQLite) y muestra tendencias, KPIs y análisis de engagement.
 - **📊 Informe por periodos**: navegación semana a semana con un **resumen
   narrativo** ("estuvo moderadamente activo"), ventana de mayor actividad,
   horas pico y **top comentadores** del periodo.
+- **📸 Archivo de historias**: captura las historias **antes de que expiren**
+  (24 h) con `story_archive.py`: cuenta, fecha original, si te menciona, si
+  lleva enlace y **descarga del medio**. Es la única forma de conservarlas.
+- **🧠 Qué contenido funciona**: rendimiento medio por tipo (Video/Image),
+  términos que más repites y tus publicaciones con más impacto.
+- **🕸️ Mapa social**: grafo radial de las cuentas con las que más interactúas.
 - **🏆 Índice de afinidad**: un puntaje por cuenta destacada combinando todas las
   señales públicas, con desglose por tipo de señal.
 - **🧵 Threads (Meta)**: fuente **pública** vía el Actor oficial

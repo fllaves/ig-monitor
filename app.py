@@ -57,6 +57,7 @@ def load_all() -> Dict[str, Any]:
         "ingest": storage.get_ingest_log(),
         "threads": storage.get_threads_posts(),
         "linkedin": storage.get_linkedin_activity(),
+        "stories_archive": storage.get_story_archive(),
     }
 
 
@@ -414,6 +415,52 @@ if rep["lost_follower_names"] or rep["new_follower_names"]:
         if rep["lost_follower_names"]:
             st.markdown("**Te dejaron de seguir:** " + ", ".join(
                 f"@{config.mask(u)}" for u in rep["lost_follower_names"]))
+
+st.divider()
+
+# --- Qué contenido funciona --------------------------------------------------
+
+st.subheader("🧠 Qué contenido funciona")
+
+perf = analytics.performance_by_type(posts)
+if perf:
+    st.dataframe([{
+        "Tipo": r["type"],
+        "Publicaciones": r["posts"],
+        "Likes medios": round(r["avg_likes"]),
+        "Comentarios medios": round(r["avg_comments"], 1),
+        "Vistas medias": round(r["avg_views"]),
+    } for r in perf], width="stretch", hide_index=True)
+
+tc1, tc2 = st.columns([3, 2])
+with tc1:
+    terminos = analytics.top_terms(posts, limit=14)
+    if terminos:
+        st.plotly_chart(analytics.fig_terms(terminos), width="stretch")
+with tc2:
+    st.markdown("**Tus publicaciones con más impacto**")
+    mejores = analytics.best_posts(posts, limit=8)
+    if mejores:
+        st.dataframe([{
+            "Fecha": (p.get("timestamp") or "")[:10],
+            "Likes": int(p.get("likesCount") or 0),
+            "Comentarios": int(p.get("commentsCount") or 0),
+            "Texto": (p.get("caption") or "")[:60],
+        } for p in mejores], width="stretch", hide_index=True)
+
+st.divider()
+
+# --- Mapa social -------------------------------------------------------------
+
+st.subheader("🕸️ Mapa social")
+vecinos = analytics.social_map_data(posts, data["comments"], data["mentions"], limit=14)
+if vecinos:
+    st.plotly_chart(analytics.fig_social_map(config.DISPLAY_NAME, vecinos),
+                    width="stretch")
+    st.caption("Tamaño del nodo = intensidad de la interacción "
+               "(comentarios ×2 · menciones ×3).")
+else:
+    st.caption("Sin interacciones registradas todavía.")
 
 st.divider()
 
@@ -1109,6 +1156,53 @@ with st.expander("➕ Gestionar cuentas destacadas"):
         if st.button("Quitar cuenta", width="stretch"):
             storage.remove_watch_account(remove_name)
             st.rerun()
+
+st.divider()
+
+# --- Archivo de historias ----------------------------------------------------
+
+st.subheader("📸 Archivo de historias")
+_stories = data["stories_archive"]
+if _stories:
+    hs1, hs2, hs3 = st.columns(3)
+    hs1.metric("Historias archivadas", len(_stories))
+    hs2.metric("Te mencionan", sum(1 for s in _stories if s.get("mentions_me")))
+    hs3.metric("Con enlace", sum(1 for s in _stories if s.get("links")))
+    st.caption("Las historias duran 24 h: este archivo es la única forma de conservarlas.")
+    with st.expander(f"Ver las {len(_stories)} historias archivadas"):
+        st.dataframe([{
+            "Fecha": (s.get("taken_at") or "")[:16].replace("T", " "),
+            "Cuenta": f"@{config.mask(s.get('username'))}",
+            "Tipo": s.get("kind"),
+            "¿Te menciona?": "✅" if s.get("mentions_me") else "",
+            "Menciones": ", ".join(s.get("mentions") or []),
+            "Enlaces": ", ".join(s.get("links") or []),
+            "Medio": "📁 local" if s.get("media_path") else "",
+            "Ver": s.get("url") or s.get("media_url") or "",
+        } for s in _stories], width="stretch", hide_index=True,
+            column_config={"Ver": st.column_config.LinkColumn("Ver", display_text="🔗 Abrir")})
+else:
+    st.caption("Sin historias archivadas todavía. **Duran 24 h**: hay que capturarlas "
+               "el mismo día.")
+
+with st.expander("📥 Importar historias (JSON)"):
+    st.caption('Formato: `[{"username":"PP","pk":"123","taken_at":"2026-10-13T10:00:00Z",'
+               '"kind":"image","mentions":["tu_usuario"],"mentions_me":1,"links":[],'
+               '"url":"https://instagram.com/stories/..."}]`')
+    _up = st.file_uploader("Archivo .json de historias archivadas", type=["json"],
+                           key="story_archive_up")
+    if _up is not None and st.button("Importar historias", width="stretch"):
+        try:
+            _payload = json.loads(_up.getvalue().decode("utf-8"))
+            if isinstance(_payload, dict):
+                _payload = _payload.get("stories") or _payload.get("story_archive") or []
+            n = storage.save_story_archive(_payload)
+            st.session_state["flash"] = {
+                "ok": True, "message": f"Historias importadas: {n}", "errors": []}
+        except Exception as exc:  # noqa: BLE001
+            st.session_state["flash"] = {
+                "ok": False, "message": f"Error al importar historias: {exc}", "errors": []}
+        st.rerun()
 
 st.divider()
 

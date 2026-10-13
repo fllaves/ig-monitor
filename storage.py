@@ -344,6 +344,25 @@ CREATE TABLE IF NOT EXISTS linkedin_activity (
 
 CREATE INDEX IF NOT EXISTS idx_linkedin_activity_profile ON linkedin_activity(profile);
 
+CREATE TABLE IF NOT EXISTS story_archive (
+    story_id     TEXT PRIMARY KEY,
+    username     TEXT,
+    pk           TEXT,
+    taken_at     TEXT,
+    kind         TEXT,
+    media_url    TEXT,
+    media_path   TEXT,
+    mentions     TEXT,
+    mentions_me  INTEGER DEFAULT 0,
+    links        TEXT,
+    caption      TEXT,
+    url          TEXT,
+    captured_at  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_story_archive_user ON story_archive(username);
+CREATE INDEX IF NOT EXISTS idx_story_archive_taken ON story_archive(taken_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_relation_events_detected ON relation_events(detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_mentions_captured ON mentions(captured_at);
@@ -389,6 +408,7 @@ def reset_db() -> None:
     """Borra todos los datos y deja el esquema vacío listo para usar."""
     conn = _connect()
     conn.executescript(
+        "DROP TABLE IF EXISTS story_archive;"
         "DROP TABLE IF EXISTS linkedin_activity;"
         "DROP TABLE IF EXISTS linkedin_profiles;"
         "DROP TABLE IF EXISTS threads_posts;"
@@ -1287,6 +1307,57 @@ def scrub_identifiers() -> int:
 
     _close(conn)
     return total
+
+
+# --- Archivo de historias (efímeras: hay que capturarlas el mismo día) -------
+
+def save_story_archive(items: List[Dict[str, Any]]) -> int:
+    """Guarda historias capturadas antes de que expiren (24 h)."""
+    if not items:
+        return 0
+    init_db()
+    conn = _connect()
+    now = utcnow()
+    count = 0
+    for it in items:
+        username = config.to_code(it.get("username") or "")
+        pk = str(it.get("pk") or "").strip()
+        sid = str(it.get("story_id") or (f"{username}-{pk}" if pk else "")).strip()
+        if not sid:
+            continue
+        mentions = [config.to_code(m) for m in (it.get("mentions") or [])]
+        conn.execute(
+            "INSERT OR REPLACE INTO story_archive(story_id, username, pk, taken_at, kind,"
+            " media_url, media_path, mentions, mentions_me, links, caption, url, captured_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (sid, username, pk, it.get("taken_at"), it.get("kind"),
+             it.get("media_url"), it.get("media_path"),
+             json.dumps(mentions, ensure_ascii=False),
+             1 if it.get("mentions_me") else 0,
+             json.dumps(it.get("links") or [], ensure_ascii=False),
+             it.get("caption"), it.get("url"), now),
+        )
+        count += 1
+    _close(conn)
+    if count:
+        log_ingest("historias", "archivo de historias del día", count)
+    return count
+
+
+def get_story_archive(username: str = None, day: str = None) -> List[Dict[str, Any]]:
+    rows = _rows("SELECT * FROM story_archive ORDER BY taken_at DESC")
+    for r in rows:
+        for campo in ("mentions", "links"):
+            try:
+                r[campo] = json.loads(r.get(campo) or "[]")
+            except (TypeError, ValueError):
+                r[campo] = []
+    if username:
+        key = config.to_code(username).lower()
+        rows = [r for r in rows if (r.get("username") or "").lower() == key]
+    if day:
+        rows = [r for r in rows if str(r.get("taken_at") or "")[:10] == day]
+    return rows
 
 
 def has_data() -> bool:

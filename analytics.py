@@ -1237,3 +1237,127 @@ def fig_hours(peak: List[Dict]) -> go.Figure:
                       xaxis_title="Hora", yaxis_title="Publicaciones",
                       margin=dict(t=40, b=40), template="plotly_white")
     return fig
+
+
+# --- Análisis de contenido ---------------------------------------------------
+
+STOPWORDS = {
+    "para", "como", "pero", "porque", "cuando", "donde", "todo", "toda", "todos",
+    "todas", "muy", "más", "mas", "esto", "esta", "este", "estos", "estas", "hay",
+    "hace", "hacen", "puede", "pueden", "cada", "otro", "otra", "otros", "otras",
+    "sino", "solo", "sólo", "mismo", "misma", "gran", "grande", "cosa", "cosas",
+    "with", "that", "this", "from", "have", "your", "about", "will", "they",
+    "what", "when", "which", "there", "their", "them", "then", "than", "into",
+    "just", "like", "some", "more", "most", "other", "only", "also", "been",
+    "were", "being", "over", "such", "very", "much", "many", "here", "does",
+    "https", "http", "www", "com", "instagram",
+}
+
+
+def _words(text: str) -> List[str]:
+    import re
+    return [w for w in re.findall(r"[a-záéíóúñü]{4,}", str(text or "").lower())
+            if w not in STOPWORDS]
+
+
+def top_terms(posts: List[Dict], limit: int = 20) -> List[Dict]:
+    """Palabras más frecuentes en los textos de tus publicaciones."""
+    conteo: Dict[str, int] = {}
+    for p in posts or []:
+        for w in _words(p.get("caption")):
+            conteo[w] = conteo.get(w, 0) + 1
+    return [{"term": t, "count": n}
+            for t, n in sorted(conteo.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
+
+
+def performance_by_type(posts: List[Dict]) -> List[Dict]:
+    """Rendimiento medio por tipo de contenido (Video, Image, Sidecar…)."""
+    grupos: Dict[str, Dict] = {}
+    for p in posts or []:
+        t = p.get("type") or "Otro"
+        g = grupos.setdefault(t, {"type": t, "posts": 0, "likes": 0, "comments": 0, "views": 0})
+        g["posts"] += 1
+        g["likes"] += int(p.get("likesCount") or 0)
+        g["comments"] += int(p.get("commentsCount") or 0)
+        g["views"] += int(p.get("videoViewCount") or 0)
+    out = []
+    for g in grupos.values():
+        n = g["posts"] or 1
+        out.append({**g, "avg_likes": g["likes"] / n,
+                    "avg_comments": g["comments"] / n, "avg_views": g["views"] / n})
+    out.sort(key=lambda r: -r["avg_likes"])
+    return out
+
+
+def best_posts(posts: List[Dict], limit: int = 8) -> List[Dict]:
+    """Publicaciones con más engagement total (likes + comentarios)."""
+    def peso(p):
+        return int(p.get("likesCount") or 0) + 3 * int(p.get("commentsCount") or 0)
+    return sorted(posts or [], key=peso, reverse=True)[:limit]
+
+
+def fig_terms(terms: List[Dict]) -> go.Figure:
+    """Barras horizontales con los términos más usados."""
+    _need_plotly()
+    terms = list(reversed(terms or []))
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=[t["count"] for t in terms], y=[t["term"] for t in terms],
+                         orientation="h", marker_color=AMBER, name="Veces"))
+    fig.update_layout(title="Términos que más repites en tus textos",
+                      xaxis_title="Veces", margin=dict(t=40, b=40, l=120),
+                      template="plotly_white", height=520)
+    return fig
+
+
+# --- Mapa social -------------------------------------------------------------
+
+def social_map_data(posts: List[Dict], comments: List[Dict], mentions: List[Dict],
+                    limit: int = 14) -> List[Dict]:
+    """Cuentas con las que más interactúas, para dibujar el grafo."""
+    conteo: Dict[str, int] = {}
+    for c in comments or []:
+        u = (c.get("owner_username") or "").strip().lower()
+        if u:
+            conteo[u] = conteo.get(u, 0) + 2
+    for m in mentions or []:
+        u = (m.get("owner_username") or "").strip().lower()
+        if u:
+            conteo[u] = conteo.get(u, 0) + 3
+    for p in posts or []:
+        for u in (p.get("mentions") or []):
+            u = str(u).strip().lower()
+            if u:
+                conteo[u] = conteo.get(u, 0) + 3
+    return [{"username": u, "count": n}
+            for u, n in sorted(conteo.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
+
+
+def fig_social_map(centro: str, vecinos: List[Dict]) -> go.Figure:
+    """Grafo radial: tú en el centro, tus interactuadores alrededor."""
+    import math
+
+    _need_plotly()
+    fig = go.Figure()
+    n = max(1, len(vecinos or []))
+    for i, v in enumerate(vecinos or []):
+        ang = 2 * math.pi * i / n
+        x, y = math.cos(ang), math.sin(ang)
+        fig.add_trace(go.Scatter(x=[0, x], y=[0, y], mode="lines",
+                                 line=dict(color="#cbd5e1", width=1),
+                                 showlegend=False, hoverinfo="skip"))
+    if vecinos:
+        fig.add_trace(go.Scatter(
+            x=[math.cos(2 * math.pi * i / n) for i in range(len(vecinos))],
+            y=[math.sin(2 * math.pi * i / n) for i in range(len(vecinos))],
+            mode="markers+text",
+            text=[v["username"] for v in vecinos], textposition="top center",
+            marker=dict(size=[10 + min(34, v["count"] * 2) for v in vecinos], color=GREEN),
+            name="Interactuadores"))
+    fig.add_trace(go.Scatter(x=[0], y=[0], mode="markers+text", text=[centro],
+                             textposition="bottom center",
+                             marker=dict(size=44, color=DEFAULT_COLOR), name=centro))
+    fig.update_layout(title="Mapa social: con quién interactúas",
+                      showlegend=False, height=560,
+                      xaxis=dict(visible=False), yaxis=dict(visible=False),
+                      margin=dict(t=50, b=30), template="plotly_white")
+    return fig
