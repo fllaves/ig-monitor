@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # Instala (o quita) la rutina diaria del centro de monitoreo en cron.
 #
-#   ./install_cron.sh            # instala la rutina a las 08:00
+#   ./install_cron.sh            # instala la rutina a las 05:00 (con destacadas)
 #   ./install_cron.sh 9 30       # a las 09:30
 #   ./install_cron.sh --remove   # la quita
 #   ./install_cron.sh --test     # ejecuta la rutina ahora mismo (dry-run)
 #
-# ⚠️ En macOS, si el proyecto está en ~/Desktop, ~/Documents o ~/Downloads,
-#    cron puede no tener permiso (protección TCC). Si falla, da "Full Disk
-#    Access" a /usr/sbin/cron en Ajustes → Privacidad y seguridad, o mueve el
-#    proyecto a una carpeta no protegida (p. ej. ~/dev/ig-monitor).
+# La rutina incluye --watch: sincroniza también los posts y comentarios de las
+# cuentas destacadas.
+#
+# ⚠️ macOS: cron NO corre si el Mac está dormido. Despiértalo antes con:
+#      sudo pmset repeat wakeorpoweron MTWRFSU 04:55:00
+#    Si el proyecto está en ~/Desktop, ~/Documents o ~/Downloads, cron puede no
+#    tener permiso (protección TCC): da "Full Disk Access" a /usr/sbin/cron, o
+#    mueve el proyecto a una carpeta no protegida (p. ej. ~/dev/ig-monitor).
 
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -28,9 +32,9 @@ if [ "${1:-}" = "--test" ]; then
   exit 0
 fi
 
-HOUR="${1:-8}"
+HOUR="${1:-5}"
 MIN="${2:-0}"
-LINE="$MIN $HOUR * * * cd $DIR && $PY daily.py >> $DIR/daily.log 2>&1 # $TAG"
+LINE="$MIN $HOUR * * * cd $DIR && $PY daily.py --watch >> $DIR/daily.log 2>&1 # $TAG"
 
 # Quita cualquier entrada previa y añade la nueva
 ( crontab -l 2>/dev/null | grep -v "$TAG" || true; echo "$LINE" ) | crontab -
