@@ -76,7 +76,7 @@ def to_iso(ts) -> str:
         return ""
 
 
-def scan_account(page, account: str, me: str, wait: float, debug: bool) -> list:
+def scan_account(page, account: str, terms: list, wait: float, debug: bool) -> list:
     """Devuelve las menciones encontradas en las destacadas de `account`."""
     found = []
     print(f"→ @{account}")
@@ -101,25 +101,23 @@ def scan_account(page, account: str, me: str, wait: float, debug: bool) -> list:
             time.sleep(max(2.0, wait - 1))
             html = page.content()
             low = html.lower()
-            if me in low:
-                mentions = page.evaluate(JS_MENTIONS) or []
-                if me in [str(m).lower() for m in mentions] or me in low:
-                    taken = [to_iso(t) for t in re.findall(r'"taken_at":(\d+)', html)]
-                    taken = sorted({t for t in taken if t})
+            matched = [t for t in terms if t in low]
+            if matched:
+                taken = [to_iso(t) for t in re.findall(r'"taken_at":(\d+)', html)]
+                taken = sorted({t for t in taken if t})
+                for term in matched:
                     found.append({
-                        "id": f"{account}-{h['id']}",
+                        "id": f"{account}-{h['id']}-{term}",
                         "source_username": account.lower(),
-                        "mentioned_username": me,
-                        "direction": ("me_to_them" if account.lower() == me else "them_to_me"),
+                        "mentioned_username": term,
+                        "direction": ("me_to_them" if account.lower() == term else "them_to_me"),
                         "url": url,
                         "highlight": h.get("name") or "",
                         "timestamp": taken[0] if taken else "",
                         "dates": taken,
                     })
-                    print(f"    ✅ DESTACADA «{h.get('name') or h['id']}» te menciona"
-                          + (f" ({taken[0][:10]})" if taken else ""))
-                else:
-                    print(f"    · «{h.get('name') or h['id']}»: la palabra aparece pero sin mención clara")
+                print(f"    ✅ DESTACADA «{h.get('name') or h['id']}» menciona: "
+                      f"{', '.join(matched)}" + (f" ({taken[0][:10]})" if taken else ""))
             elif debug:
                 print(f"    · «{h.get('name') or h['id']}»: sin mención")
         except Exception as exc:  # noqa: BLE001
@@ -131,7 +129,8 @@ def scan_account(page, account: str, me: str, wait: float, debug: bool) -> list:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Escáner de historias destacadas")
-    ap.add_argument("--me", required=True, help="tu usuario (el que buscamos en las menciones)")
+    ap.add_argument("--me", required=True,
+                    help="usuario(s) a buscar en las menciones, separados por comas")
     ap.add_argument("--accounts", required=True,
                     help="cuentas a revisar, separadas por comas (puede incluir la tuya)")
     ap.add_argument("--browser", default="brave")
@@ -148,7 +147,7 @@ def main() -> int:
             "    pip3 install --user playwright\n"
             "    python3 -m playwright install chromium")
 
-    me = args.me.strip().lstrip("@").lower()
+    terms = [t.strip().lstrip("@").lower() for t in args.me.split(",") if t.strip()]
     accounts = [a.strip().lstrip("@") for a in args.accounts.split(",") if a.strip()]
     cookies = load_cookies(args.browser)
     pw_cookies = [{"name": k, "value": v, "domain": ".instagram.com", "path": "/"}
@@ -165,7 +164,7 @@ def main() -> int:
         ctx.add_cookies(pw_cookies)
         page = ctx.new_page()
         for account in accounts:
-            results.extend(scan_account(page, account, me, args.wait, args.debug))
+            results.extend(scan_account(page, account, terms, args.wait, args.debug))
         browser.close()
 
     with open(args.out, "w", encoding="utf-8") as fh:
