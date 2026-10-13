@@ -362,6 +362,61 @@ with st.expander("🗂️ Fuentes de datos consumidas (ingest log)"):
 
 st.divider()
 
+# --- Informe por periodos ----------------------------------------------------
+
+st.subheader("📊 Informe por periodos")
+periodos = analytics.period_ranges(8)
+etiquetas = []
+for _p in periodos:
+    if _p["weeks_ago"] == 0:
+        _base = "Esta semana"
+    elif _p["weeks_ago"] == 1:
+        _base = "Semana pasada"
+    else:
+        _base = f"Hace {_p['weeks_ago']} semanas"
+    etiquetas.append(f"{_base}  ·  {_p['label']}")
+
+_sel = st.selectbox("Periodo", range(len(periodos)),
+                    format_func=lambda i: etiquetas[i], key="period_sel")
+_per = periodos[_sel]
+rep = analytics.period_report(posts, data["comments"], data["mentions"],
+                              data["events"], _per["start"], _per["end"])
+st.markdown(rep["narrative"])
+
+p1, p2, p3, p4, p5 = st.columns(5)
+p1.metric("Publicaciones", rep["posts"])
+p2.metric("Likes recibidos", f"{rep['likes']:,}")
+p3.metric("Comentarios", rep["comments_received"])
+p4.metric("Nuevos seguidores", rep["new_followers"], delta=f"{rep['net_followers']:+d} neto")
+p5.metric("Unfollows", rep["unfollows"])
+
+pc1, pc2 = st.columns([2, 1])
+with pc1:
+    if rep["peak_hours"]:
+        st.plotly_chart(analytics.fig_hours(rep["peak_hours"]), width="stretch")
+    else:
+        st.caption("Sin publicaciones en el periodo.")
+with pc2:
+    st.markdown("**Top comentadores**")
+    if rep["top_commenters"]:
+        st.dataframe([{"Cuenta": f"@{config.mask(t['username'])}",
+                       "Comentarios": t["comments"]}
+                      for t in rep["top_commenters"]],
+                     width="stretch", hide_index=True)
+    else:
+        st.caption("Sin comentarios en el periodo.")
+
+if rep["lost_follower_names"] or rep["new_follower_names"]:
+    with st.expander("Detalle de seguidores del periodo"):
+        if rep["new_follower_names"]:
+            st.markdown("**Nuevos:** " + ", ".join(
+                f"@{config.mask(u)}" for u in rep["new_follower_names"]))
+        if rep["lost_follower_names"]:
+            st.markdown("**Te dejaron de seguir:** " + ", ".join(
+                f"@{config.mask(u)}" for u in rep["lost_follower_names"]))
+
+st.divider()
+
 # --- Gráficos ----------------------------------------------------------------
 
 followers_series = analytics.follower_series(data["history"])

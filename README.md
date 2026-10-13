@@ -34,6 +34,9 @@ local (SQLite) y muestra tendencias, KPIs y análisis de engagement.
 - **📅 Actividad diaria + registro de fuentes**: resumen del día (posts, likes,
   comentarios, menciones y seguidores netos) y un **log de qué fuente** aportó
   los datos y cuándo (`ingest log`).
+- **📊 Informe por periodos**: navegación semana a semana con un **resumen
+  narrativo** ("estuvo moderadamente activo"), ventana de mayor actividad,
+  horas pico y **top comentadores** del periodo.
 - **🏆 Índice de afinidad**: un puntaje por cuenta destacada combinando todas las
   señales públicas, con desglose por tipo de señal.
 - **🧵 Threads (Meta)**: fuente **pública** vía el Actor oficial

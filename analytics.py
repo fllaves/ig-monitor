@@ -11,6 +11,8 @@ from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+import config
+
 try:
     import plotly.graph_objects as go
     _HAS_PLOTLY = True
@@ -1109,3 +1111,129 @@ def affinity_table(watchlist: List[Dict], build_card, build_inter) -> List[Dict]
         })
     rows.sort(key=lambda r: (-r["score"], r["username"].lower()))
     return rows
+
+
+# --- Informe por periodos (estilo Dolphin Radar) -----------------------------
+
+def period_ranges(weeks: int = 8) -> List[Dict[str, Any]]:
+    """Últimas N semanas (de la más reciente a la más antigua)."""
+    from datetime import timedelta
+
+    today = datetime.utcnow().date()
+    out = []
+    for i in range(max(1, weeks)):
+        end = today - timedelta(days=7 * i)
+        start = end - timedelta(days=6)
+        etiqueta = f"{start.strftime('%d %b')} – {end.strftime('%d %b')}"
+        out.append({"label": etiqueta, "start": start.isoformat(),
+                    "end": end.isoformat(), "weeks_ago": i})
+    return out
+
+
+def _in_range(value, start: str, end: str) -> bool:
+    day = str(value or "")[:10]
+    return bool(day) and start <= day <= end
+
+
+def _hour_of(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).hour
+    except (TypeError, ValueError):
+        return None
+
+
+def top_commenters(comments: List[Dict], limit: int = 5) -> List[Dict]:
+    """Quién comenta más (por autor)."""
+    conteo: Dict[str, int] = {}
+    for c in comments or []:
+        name = (c.get("owner_username") or "").strip()
+        if name:
+            conteo[name] = conteo.get(name, 0) + 1
+    ordenado = sorted(conteo.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [{"username": u, "comments": n} for u, n in ordenado[:limit]]
+
+
+def peak_hours(posts: List[Dict], limit: int = 6) -> List[Dict]:
+    """Horas del día (UTC) en las que más se publica."""
+    conteo: Dict[int, int] = {}
+    for p in posts or []:
+        h = _hour_of(p.get("timestamp"))
+        if h is not None:
+            conteo[h] = conteo.get(h, 0) + 1
+    ordenado = sorted(conteo.items(), key=lambda kv: -kv[1])
+    return [{"hour": h, "posts": n} for h, n in ordenado[:limit]]
+
+
+def _actividad(n_posts: int) -> str:
+    if n_posts == 0:
+        return "sin actividad"
+    if n_posts <= 2:
+        return "poco activo"
+    if n_posts <= 6:
+        return "moderadamente activo"
+    return "muy activo"
+
+
+def period_report(posts: List[Dict], comments: List[Dict], mentions: List[Dict],
+                  events: List[Dict], start: str, end: str) -> Dict[str, Any]:
+    """Informe narrativo de un rango de fechas (YYYY-MM-DD)."""
+    pp = [p for p in (posts or []) if _in_range(p.get("timestamp"), start, end)]
+    cc = [c for c in (comments or []) if _in_range(c.get("timestamp"), start, end)]
+    mm = [m for m in (mentions or []) if _in_range(m.get("timestamp"), start, end)]
+    ev = [e for e in (events or []) if _in_range(e.get("detected_at"), start, end)]
+
+    nuevos = [e for e in ev if e.get("event_type") == "new_follower"]
+    perdidos = [e for e in ev if e.get("event_type") == "lost_follower"]
+    nuevos_posts_totales = sum(int(p.get("likesCount") or 0) for p in pp)
+    comentarios_totales = sum(int(p.get("commentsCount") or 0) for p in pp)
+
+    horas = peak_hours(pp, limit=3)
+    top = top_commenters(cc, limit=5)
+    ventana = ""
+    if horas:
+        h = horas[0]["hour"]
+        ventana = f"{h:02d}:00 – {(h + 2) % 24:02d}:00"
+
+    palabra = "publicación" if len(pp) == 1 else "publicaciones"
+    narrativa = (
+        f"{config.DISPLAY_NAME} estuvo **{_actividad(len(pp))}** "
+        f"({len(pp)} {palabra})."
+    )
+    if ventana:
+        narrativa += f" Ventana de mayor actividad: **{ventana} UTC**."
+    if top:
+        narrativa += (" Comentan más: "
+                      + ", ".join(f"@{t['username']}" for t in top[:5]) + ".")
+
+    return {
+        "start": start, "end": end,
+        "posts": len(pp),
+        "likes": nuevos_posts_totales,
+        "comments_received": comentarios_totales,
+        "mentions": len(mm),
+        "new_followers": len(nuevos),
+        "unfollows": len(perdidos),
+        "net_followers": len(nuevos) - len(perdidos),
+        "avg_likes": (nuevos_posts_totales / len(pp)) if pp else 0,
+        "top_commenters": top,
+        "peak_hours": horas,
+        "activity": _actividad(len(pp)),
+        "narrative": narrativa,
+        "lost_follower_names": [e.get("username") for e in perdidos][:10],
+        "new_follower_names": [e.get("username") for e in nuevos][:10],
+    }
+
+
+def fig_hours(peak: List[Dict]) -> go.Figure:
+    """Barras de publicaciones por hora del día."""
+    _need_plotly()
+    peak = sorted(peak or [], key=lambda r: r["hour"])
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=[f"{r['hour']:02d}:00" for r in peak],
+        y=[r["posts"] for r in peak],
+        marker_color=DEFAULT_COLOR, name="Publicaciones"))
+    fig.update_layout(title="Horas de mayor actividad (UTC)",
+                      xaxis_title="Hora", yaxis_title="Publicaciones",
+                      margin=dict(t=40, b=40), template="plotly_white")
+    return fig
