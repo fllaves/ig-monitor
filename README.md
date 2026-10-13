@@ -217,10 +217,21 @@ en GitHub → *Settings → Secrets and variables → Actions*: `APIFY_TOKEN`,
 `IG_USERNAME`, `DATABASE_URL`, `DATABASE_AUTH_TOKEN` y (opcional)
 `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`.
 
-**Opción B — cron local**:
-```cron
-0 8 * * * cd /ruta/a/ig-monitor && .venv/bin/python daily.py >> daily.log 2>&1
+**Opción B — cron local** (un solo comando):
+```bash
+./install_cron.sh            # instala la rutina a las 08:00
+./install_cron.sh 9 30       # a las 09:30
+./install_cron.sh --test     # pruébala ahora (no envía nada)
+./install_cron.sh --remove   # quítala
 ```
+
+> En macOS, si el proyecto está en `~/Desktop`, `~/Documents` o `~/Downloads`,
+> cron puede fallar por la protección TCC. Dale *Full Disk Access* a
+> `/usr/sbin/cron` o mueve el proyecto a una carpeta no protegida.
+
+---
+
+📋 **Estado y pendientes**: ver [`ROADMAP.md`](ROADMAP.md).
 
 ## Solución de problemas
 
