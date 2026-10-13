@@ -1,8 +1,7 @@
 """Variante "humana": abre el perfil en un navegador real, hace CLIC en
 "seguidos/seguidores" y hace SCROLL leyendo los nombres de la pantalla.
 
-Sin llamadas a la API interna → evita el HTTP 429 (que es lo que rompía las
-otras versiones, porque `/api/v1/users/web_profile_info/` está semi-bloqueado).
+Sin llamadas a la API interna → evita el HTTP 429.
 
 ⚠️ Va contra los ToS de Instagram. Riesgo para la cuenta burner. Ritmo lento.
 
@@ -11,9 +10,8 @@ Instalación (una vez):
     python3 -m playwright install chromium
 
 Uso (cierra Brave antes):
-    python3 burner_human.py --username TU_USUARIO
-    python3 burner_human.py --username TU_USUARIO --followers-limit 300 \
-        --watchlist PP,BC,F,JU,DRZ
+    python3 burner_human.py --username TU_USUARIO --debug
+    python3 burner_human.py --username TU_USUARIO --followers-limit 300
 """
 import argparse
 import json
@@ -22,6 +20,7 @@ import sys
 import time
 
 BASE = "https://www.instagram.com"
+DIALOG = 'div[role="dialog"], [role="dialog"]'
 
 
 def load_cookies(browser: str) -> dict:
@@ -43,7 +42,7 @@ def load_cookies(browser: str) -> dict:
 # JS: extrae los usernames visibles dentro del modal
 JS_READ = """
 () => {
-  const dlg = document.querySelector('div[role="dialog"]');
+  const dlg = document.querySelector('div[role="dialog"]') || document.querySelector('[role="dialog"]');
   if (!dlg) return [];
   return Array.from(dlg.querySelectorAll('a[href]'))
     .map(a => a.getAttribute('href'))
@@ -55,7 +54,7 @@ JS_READ = """
 # JS: baja el scroll del modal hasta el final
 JS_SCROLL = """
 () => {
-  const dlg = document.querySelector('div[role="dialog"]');
+  const dlg = document.querySelector('div[role="dialog"]') || document.querySelector('[role="dialog"]');
   if (!dlg) return false;
   const cands = Array.from(dlg.querySelectorAll('div'))
     .filter(e => e.scrollHeight > e.clientHeight + 40);
@@ -66,24 +65,53 @@ JS_SCROLL = """
 }
 """
 
+# JS: diagnóstico de la página
+JS_DIAG = """
+() => ({
+  title: document.title,
+  url: location.href,
+  links_following: document.querySelectorAll('a[href*="/following/"]').length,
+  links_followers: document.querySelectorAll('a[href*="/followers/"]').length,
+  has_dialog: !!document.querySelector('div[role="dialog"], [role="dialog"]'),
+  body_chars: document.body ? document.body.innerText.length : 0,
+})
+"""
 
-def open_list(page, username: str, kind: str) -> bool:
-    """Hace clic en el enlace de 'following'/'followers' del perfil."""
-    for sel in (f'a[href="/{username}/{kind}/"]', f'a[href$="/{kind}/"]'):
+
+def open_list(page, username: str, kind: str, debug: bool = False) -> bool:
+    """Abre la lista de 'following'/'followers' con 3 estrategias + fallback."""
+    # Estrategia 1: clic en el enlace del perfil
+    for sel in (f'a[href="/{username}/{kind}/"]', f'a[href$="/{kind}/"]',
+                f'a[href*="/{kind}/"]'):
         try:
-            page.click(sel, timeout=8000)
-            page.wait_for_selector('div[role="dialog"]', timeout=15000)
+            loc = page.locator(sel).first
+            loc.scroll_into_view_if_needed(timeout=4000)
+            loc.click(timeout=6000)
+            page.wait_for_selector(DIALOG, timeout=12000, state="attached")
             time.sleep(2)
+            if debug:
+                print(f"    (abierto por selector: {sel})")
             return True
         except Exception:
             continue
-    print(f"  ⚠ No pude abrir la lista de {kind}", file=sys.stderr)
+
+    # Estrategia 2: navegar directamente a la URL de la lista
+    try:
+        if debug:
+            print(f"    (intentando URL directa /{username}/{kind}/)")
+        page.goto(f"{BASE}/{username}/{kind}/", wait_until="domcontentloaded")
+        page.wait_for_selector(DIALOG, timeout=15000, state="attached")
+        time.sleep(2)
+        return True
+    except Exception as exc:
+        if debug:
+            print(f"    (URL directa falló: {type(exc).__name__})")
     return False
 
 
 def collect(page, limit: int, max_scrolls: int) -> list:
     names, stall = set(), 0
-    for i in range(max_scrolls):
+    for _ in range(max_scrolls):
         try:
             names.update(n for n in page.evaluate(JS_READ) if n)
         except Exception:
@@ -121,7 +149,10 @@ def main() -> int:
     ap.add_argument("--followers-limit", type=int, default=300)
     ap.add_argument("--max-scrolls", type=int, default=400)
     ap.add_argument("--watchlist", default="")
-    ap.add_argument("--wait", type=float, default=3.0, help="espera tras cargar el perfil")
+    ap.add_argument("--wait", type=float, default=4.0, help="espera tras cargar el perfil")
+    ap.add_argument("--dump-html", action="store_true", help="guarda el HTML para depurar")
+    ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--no-stories", action="store_true", help="no mirar historias")
     args = ap.parse_args()
 
     try:
@@ -133,7 +164,8 @@ def main() -> int:
             "    python3 -m playwright install chromium")
 
     target = args.username.strip().lstrip("@")
-    watch = [u.strip().lstrip("@") for u in args.watchlist.split(",") if u.strip()]
+    watch = [] if args.no_stories else [
+        u.strip().lstrip("@") for u in args.watchlist.split(",") if u.strip()]
     cookies = load_cookies(args.browser)
     pw_cookies = [{"name": k, "value": v, "domain": ".instagram.com", "path": "/"}
                   for k, v in cookies.items()]
@@ -142,13 +174,11 @@ def main() -> int:
     print("  Método HUMANO (clic + scroll). ⚠️  ToS + riesgo para la burner.")
     print("=" * 62)
 
-    following, followers = [], []
-    story_mentions = []
+    following, followers, story_mentions = [], [], []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
-        ctx = browser.new_context(locale="es-ES",
-                                  viewport={"width": 1280, "height": 900})
+        ctx = browser.new_context(locale="es-ES", viewport={"width": 1280, "height": 900})
         ctx.add_cookies(pw_cookies)
         page = ctx.new_page()
 
@@ -156,23 +186,33 @@ def main() -> int:
         page.goto(f"{BASE}/{target}/", wait_until="domcontentloaded")
         time.sleep(args.wait)
 
-        # Si Instagram pide verificación, el usuario puede resolverla a mano aquí
-        print("→ Si aparece algún aviso/verificación, resuélvelo en la ventana.")
-        time.sleep(3)
+        if args.debug or args.dump_html:
+            try:
+                diag = page.evaluate(JS_DIAG)
+                print("  · DIAGNÓSTICO:", json.dumps(diag, ensure_ascii=False))
+            except Exception as exc:  # noqa: BLE001
+                print(f"  · diagnóstico falló: {exc}")
+        if args.dump_html:
+            with open("burner_profile.html", "w", encoding="utf-8") as fh:
+                fh.write(page.content())
+            print("  · HTML guardado en burner_profile.html")
 
         print("→ Leyendo SEGUIDOS…")
-        if open_list(page, target, "following"):
+        if open_list(page, target, "following", args.debug):
             following = collect(page, args.following_limit, args.max_scrolls)
             page.keyboard.press("Escape")
             time.sleep(2)
+        else:
+            print("  ⚠ no se pudo abrir la lista de seguidos", file=sys.stderr)
 
         print("→ Leyendo SEGUIDORES…")
-        if open_list(page, target, "followers"):
+        if open_list(page, target, "followers", args.debug):
             followers = collect(page, args.followers_limit, args.max_scrolls)
             page.keyboard.press("Escape")
             time.sleep(2)
+        else:
+            print("  ⚠ no se pudo abrir la lista de seguidores", file=sys.stderr)
 
-        # --- Historias de la watchlist (se abren en el visor) ---
         if watch:
             print("→ Mirando historias de la watchlist…")
             me = target.lower()
@@ -196,7 +236,8 @@ def main() -> int:
                             "url": page.url,
                             "timestamp": int(time.time()),
                         })
-                    print(f"  @{account}: {'TE MENCIONA ✅' if hits else 'sin mención tuya'}")
+                    print(f"  @{account}: {'TE MENCIONA ✅' if hits else 'sin mención tuya'}"
+                          + (f" ({len(found)} cuentas vistas)" if args.debug else ""))
                     time.sleep(random.uniform(2, 4))
                 except Exception as exc:  # noqa: BLE001
                     print(f"  ⚠ @{account}: {exc}", file=sys.stderr)
@@ -213,9 +254,12 @@ def main() -> int:
             json.dump(story_mentions, fh, ensure_ascii=False)
         print(f"→ Guardado {args.stories_out}: {len(story_mentions)} menciones en historias")
 
-    print("\n✔ Listo. Súbelos al panel:")
-    print(f"   · {args.out}          → 📥 Importar snapshot histórico")
-    print(f"   · {args.stories_out}  → 📥 Importar menciones de historias")
+    if not followers and not following:
+        print("\n⚠ No se leyó ninguna cuenta. Reintenta añadiendo:  --debug --dump-html")
+    else:
+        print("\n✔ Listo. Súbelos al panel:")
+        print(f"   · {args.out}          → 📥 Importar snapshot histórico")
+        print(f"   · {args.stories_out}  → 📥 Importar menciones de historias")
     return 0
 
 
