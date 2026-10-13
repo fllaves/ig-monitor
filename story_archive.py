@@ -81,27 +81,55 @@ def _iso(ts) -> str:
         return ""
 
 
-def _clasificar(links, me):
-    """Separa menciones (internas) de enlaces externos."""
-    mentions, externos = [], []
-    for h in links or []:
-        if h.startswith("http"):
-            if "instagram.com" in h:
-                m = re.search(r"instagram\.com/([A-Za-z0-9._]+)/?", h)
-                if m:
-                    mentions.append(m.group(1).lower())
-            else:
-                externos.append(h)
-        elif re.match(r"^/[A-Za-z0-9._]+/?$", h):
-            mentions.append(h.strip("/").lower())
-    ignorar = {"p", "reel", "reels", "stories", "explore", "accounts", "direct"}
-    mentions = [m for m in dict.fromkeys(mentions) if m not in ignorar]
-    return mentions, list(dict.fromkeys(externos))
+def _mentions_from_html(html: str) -> list:
+    """Extrae las menciones REALES (stickers) del JSON embebido de la historia.
+
+    Los enlaces del DOM incluyen navegación, sugerencias y cuentas relacionadas,
+    así que producían falsos positivos. El JSON sí trae las menciones de verdad.
+    """
+    nombres = []
+    for clave in ("reel_mentions", "story_mentions"):
+        for m in re.finditer(rf'"{clave}":\s*\[', html):
+            trozo = html[m.end():m.end() + 4000]
+            nombres += re.findall(r'"username":"([A-Za-z0-9._]{1,40})"', trozo)
+    return list(dict.fromkeys(n.lower() for n in nombres))
+
+
+def _links_from_html(html: str) -> list:
+    """Extrae los enlaces externos de los stickers de enlace."""
+    urls = []
+    for clave in ("story_link_stickers", "link_sticker"):
+        for m in re.finditer(rf'"{clave}"', html):
+            trozo = html[m.end():m.end() + 1500]
+            urls += re.findall(r'"url":"(https?://[^"]{5,300})"', trozo)
+    limpios = []
+    for u in urls:
+        u = u.replace("\\/", "/")
+        if "instagram.com" not in u and u not in limpios:
+            limpios.append(u)
+    return limpios
+
+
+def _story_id(code: str, media_url: str, pk: str, indice: int) -> str:
+    """Identificador **único y estable** por historia.
+
+    El `pk` que aparece en el HTML no cambia al avanzar de historia, así que se
+    usaba el mismo id 40 veces y se pisaban entre sí. Se usa el hash del medio,
+    que sí es único; si no hay medio, el pk y el índice.
+    """
+    import hashlib
+
+    if media_url:
+        base = hashlib.sha1(media_url.encode("utf-8", "replace")).hexdigest()[:16]
+    else:
+        base = f"{pk}-{indice}"
+    return f"{code}-{base}"
 
 
 def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug):
     """Recorre las historias de una cuenta y devuelve las capturadas."""
     encontradas = []
+    vistos = set()
     page.goto(f"{BASE}/stories/{real}/", wait_until="domcontentloaded")
     time.sleep(5)
 
@@ -127,14 +155,23 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug):
             html = page.content()
             taken = re.findall(r'"taken_at":(\d{9,11})', html)
             pks = re.findall(r'"pk":"?(\d{15,20})"?', html)
-            story_pk = pks[0] if pks else f"{int(time.time())}-{i}"
-            mentions, externos = _clasificar(data.get("links"), me)
+            sid = _story_id(code, media_url, pks[0] if pks else "", i)
+
+            if sid in vistos:
+                # La misma historia otra vez: el visor no avanzó. Paramos.
+                if debug:
+                    print("    (historia repetida: fin del carrusel)")
+                break
+            vistos.add(sid)
+
+            mentions = _mentions_from_html(html)
+            externos = _links_from_html(html)
             kind = "video" if data.get("video") else "image"
 
             media_path = ""
             if media_dir and media_url:
                 ext = ".mp4" if kind == "video" else ".jpg"
-                destino = Path(media_dir) / f"{code}_{story_pk}{ext}"   # ← código, no usuario real
+                destino = Path(media_dir) / f"{sid}{ext}"   # ← solo códigos
                 try:
                     resp = ctx.request.get(media_url, timeout=60000)
                     if resp.ok:
@@ -145,21 +182,23 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug):
                     if debug:
                         print(f"    (no pude descargar el medio: {exc})")
 
+            me_key = (me or "").lower()
             encontradas.append({
-                "story_id": f"{code}-{story_pk}",
+                "story_id": sid,
                 "username": code,
-                "pk": str(story_pk),
+                "pk": sid.split("-", 1)[-1],
                 "taken_at": _iso(taken[0]) if taken else datetime.now(timezone.utc).isoformat(),
                 "kind": kind,
                 "media_url": media_url,
                 "media_path": media_path,
                 "mentions": mentions,
-                "mentions_me": 1 if me and me in [m.lower() for m in mentions] else 0,
+                "mentions_me": 1 if me_key and me_key in [m.lower() for m in mentions] else 0,
                 "links": externos,
                 "caption": "",
-                "url": page.url,
+                # No se guarda la URL: contiene el usuario real. El medio queda en disco.
+                "url": "",
             })
-            marca = " ⬅️ TE MENCIONA" if (me and me in [m.lower() for m in mentions]) else ""
+            marca = " ⬅️ TE MENCIONA" if (me_key and me_key in [m.lower() for m in mentions]) else ""
             if externos:
                 marca += " 🔗"
             print(f"    · historia {len(encontradas)}: {kind} ({area} px²){marca}")
@@ -179,7 +218,7 @@ def main() -> int:
                     help="códigos de cuenta separados por comas (PP,BC,DRZ…)")
     ap.add_argument("--me", default="", help="tu usuario, para detectar menciones")
     ap.add_argument("--browser", default="brave")
-    ap.add_argument("--out", default="story_archive.json")
+    ap.add_argument("--out", default="data/story_archive.json")
     ap.add_argument("--media-dir", default="", help="carpeta donde descargar los medios")
     ap.add_argument("--max-stories", type=int, default=25)
     ap.add_argument("--debug", action="store_true")
