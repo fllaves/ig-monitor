@@ -29,6 +29,15 @@
   **sin cookies** (no hay sesión que comprometer). Devuelve posts **y
   compartidos** con `repostedBy` + `repostedAt` → **señales con fecha**.
   Sección propia en el panel con ranking de quién comparte tu contenido.
+- **📸 Archivador de historias** (`story_archive.py`): captura las historias el
+  mismo día (duran 24 h), con fecha original, menciones, enlaces y **descarga
+  del medio**. Tabla `story_archive` + sección en el panel + importador JSON.
+- **📊 Informe por periodos**: navegación semanal con resumen narrativo, horas
+  pico y top comentadores (aprendido de Dolphin Radar).
+- **🧠 Qué contenido funciona**: rendimiento por tipo, términos más repetidos y
+  publicaciones con más impacto.
+- **🕸️ Mapa social**: grafo radial de interactuadores.
+- **Total: 21 secciones** en el panel.
 
 ## 💼 Hallazgo LinkedIn (DRZ)
 
