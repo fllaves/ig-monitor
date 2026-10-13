@@ -129,6 +129,45 @@
 - Los scripts de la burner sí usan `requests`/`browser_cookie3`/`playwright`,
   pero son **locales y opcionales**.
 
+## 🛡️ Auditoría de seguridad (última pasada)
+
+**Secretos**
+- ✅ Cero secretos hardcodeados. En el historial solo hay *placeholders*
+  (`apify_api_tu_token`, `tu-base.turso.io`).
+- ✅ El token real vive solo en `.env` (gitignored) y en Streamlit Secrets.
+- ✅ Autor de los commits: `IG FV <igfv@users.noreply.github.com>`.
+
+**Privacidad**
+- ✅ Repo, historial y panel: **cero nombres reales** (códigos PP/DRZ/JU/BC/F).
+- ✅ `scrub_identifiers()` recorre **todas las columnas de texto de todas las
+  tablas** (raw_json, URLs, captions, logs) + `VACUUM`.
+- ✅ Los medios se guardan con **códigos** en el nombre; el archivador ya **no
+  guarda la URL** de la historia (contenía el usuario real).
+- ⚠️ **Leak cerrado**: `posts.raw_json`, `comments.raw_json`, `watchlist.username_key`,
+  `story_archive.*`, `threads_posts.url` contenían nombres → limpiados (197 celdas).
+
+**Inyección**
+- ✅ SQL parametrizado en todo lo que viene de fuera. Los únicos f-strings van a
+  nombres de tabla/columna **propios** (migración y limpieza), nunca a datos.
+
+**Robustez (bugs reales corregidos)**
+- 🐛 `enrich_posts` mezclaba fechas *naive* y *aware* → **una publicación sin
+  fecha tumbaba el panel entero**. Ahora `_parse_dt` siempre devuelve UTC aware.
+- 🐛 `compute_kpis` devolvía `float` y la app formateaba con `%d` → **el panel no
+  arrancaba**. Ahora los contadores son `int`.
+- 🐛 `profile_followers` podía ser texto y se formateaba con `,:` → crash en la
+  Ficha 360. Ahora `_int()`.
+- 🐛 Valores no numéricos (`"abc"`, `inf`, `nan`) o `None` en las listas
+  rompían 10+ funciones → helper `_num`/`_int`/`_dicts`/`_as_day`.
+- 🐛 Errores de escritura en la BD **se ignoraban en silencio** (riesgo de
+  pérdida de datos) → ahora se registran y se muestran como aviso.
+
+**Verificación**
+- 21/21 secciones renderizan sin excepciones con datos reales + sintéticos.
+- Pruebas adversarias con tipos imposibles: 0 fallos.
+- `story_archive.py`: menciones reales (desde el JSON), ids únicos por medio,
+  y parada cuando no hay historia.
+
 ## 🧭 Cómo retomar
 
 ```bash
