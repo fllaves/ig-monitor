@@ -331,17 +331,35 @@ def imprimir_secretos() -> None:
         return str(v or "").replace("\\", "\\\\").replace('"', '\\"')
 
     mapa = ",".join(f"{c}:{r}" for c, r in sorted(config.watch_map().items()))
+    db_url = str(getattr(config, "DATABASE_URL", "") or "")
+    db_tok = str(getattr(config, "DATABASE_AUTH_TOKEN", "") or "")
     print("\n" + "═" * 66)
     print("  PEGA ESTO EN STREAMLIT → Settings → Secrets")
     print("  ⚠️  Contiene tus tokens: no compartas esta pantalla.")
     print("═" * 66 + "\n")
-    for clave, valor in [
+
+    lineas = [
         ("APIFY_TOKEN", config.APIFY_TOKEN),
         ("IG_USERNAME", config.USERNAME),
         ("DISPLAY_NAME", config.DISPLAY_NAME),
         ("LINKEDIN_PROFILE", config.LINKEDIN_PROFILE),
-        ("DATABASE_URL", getattr(config, "DATABASE_URL", "")),
-        ("DATABASE_AUTH_TOKEN", getattr(config, "DATABASE_AUTH_TOKEN", "")),
+    ]
+    for clave, valor in lineas:
+        if valor:
+            print(f'{clave} = "{esc(valor)}"')
+
+    # ⚠️ Las credenciales de Turso viven SOLO en Streamlit: si aquí salen
+    # vacías, imprimirlas BORRARÍA la conexión de la nube. Nunca se incluyen.
+    if db_url and not db_url.endswith("...."):
+        print(f'DATABASE_URL = "{esc(db_url)}"')
+    else:
+        print('# DATABASE_URL = "<NO BORRAR: cópialo de tu panel de Turso>"')
+    if db_tok and not db_tok.endswith("...."):
+        print(f'DATABASE_AUTH_TOKEN = "{esc(db_tok)}"')
+    else:
+        print('# DATABASE_AUTH_TOKEN = "<NO BORRAR: cópialo de tu panel de Turso>"')
+
+    for clave, valor in [
         ("WATCHLIST", ",".join(config.WATCHLIST)),
         ("WATCH_MAP", mapa),
         ("SHOW_LINKS", "true" if config.SHOW_LINKS else "false"),
@@ -349,6 +367,13 @@ def imprimir_secretos() -> None:
         ("TELEGRAM_CHAT_ID", config.TELEGRAM_CHAT_ID),
     ]:
         print(f'{clave} = "{esc(valor)}"')
+
+    if not (db_url and not db_url.endswith("....")):
+        print("\n" + "!" * 66)
+        print("  ⚠️  NO PEGUES ESTE BLOQUE SIN ANTES AÑADIR DATABASE_URL Y")
+        print("      DATABASE_AUTH_TOKEN de tu panel de Turso: si los dejas")
+        print("      fuera o vacíos, el panel perderá todos los datos de la nube.")
+        print("!" * 66)
     print("\n" + "═" * 66)
     print("  Después: Manage app → Reboot (los secretos se leen al arrancar).")
     print("═" * 66 + "\n")
