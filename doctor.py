@@ -368,12 +368,15 @@ def chequear_automatizacion() -> None:
         add("fail", "Rutina diaria", "NO programada → el historial no crecerá solo")
         add("info", "Cómo activarla", "./install_launchd.sh")
 
-    story = [l for l in crontab.splitlines() if "story_archive" in l]
-    if story:
-        add("ok", "Archivador de historias", "programado")
+    story_cron = [l for l in crontab.splitlines() if "story_archive" in l]
+    sp = Path.home() / "Library/LaunchAgents/com.igfv.igmonitor.stories.plist"
+    if story_cron:
+        add("ok", "Archivador de historias", "programado (cron)")
+    elif sp.exists():
+        add("ok", "Archivador de historias", "programado vía launchd (05:30)")
     else:
         add("warn", "Archivador de historias",
-            "no programado → las historias se pierden cada día")
+            "no programado → ./install_launchd.sh --stories")
 
     if shutil.which("python3"):
         add("ok", "python3 localizable", shutil.which("python3"))

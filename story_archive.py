@@ -214,8 +214,8 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Archivador de historias de Instagram")
-    ap.add_argument("--accounts", required=True,
-                    help="códigos de cuenta separados por comas (PP,BC,DRZ…)")
+    ap.add_argument("--accounts", default="",
+                    help="códigos separados por comas (por defecto: toda la watchlist)")
     ap.add_argument("--me", default="", help="tu usuario, para detectar menciones")
     ap.add_argument("--browser", default="brave")
     ap.add_argument("--out", default="data/story_archive.json")
@@ -232,8 +232,9 @@ def main() -> int:
 
     import config
 
+    lista = args.accounts or ",".join(config.WATCHLIST)
     pares = []
-    for raw in args.accounts.split(","):
+    for raw in lista.split(","):
         raw = raw.strip()
         if raw:
             pares.append((config.to_code(raw), config.real_username(raw)))

@@ -11,6 +11,7 @@
 #   ./install_launchd.sh --status   # ver si está cargado
 #   ./install_launchd.sh --run-now  # ejecutarlo ya (prueba real)
 #   ./install_launchd.sh --full     # modo completo (comentarios, listas, LinkedIn)
+#   ./install_launchd.sh --stories  # + archivador de historias (05:30, gratis)
 #   ./install_launchd.sh --remove   # desinstalar
 
 set -u
@@ -35,8 +36,46 @@ case "${1:-}" in
         exit 0 ;;
     --run-now)
         echo "→ Ejecutando la rutina AHORA (prueba real)…"
-        cd "$DIR" && "$PY" daily.py --watch
+        cd "$DIR" && "$PY" daily.py
         exit $? ;;
+    --stories)
+        # Archivador de historias: gratis (usa la burner), a las 05:30.
+        # Recuerda: necesita Brave CERRADO para leer la sesión.
+        SP="$HOME/Library/LaunchAgents/com.igfv.igmonitor.stories.plist"
+        mkdir -p "$HOME/Library/LaunchAgents"
+        cat > "$SP" <<STORIES_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.igfv.igmonitor.stories</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$PY</string>
+        <string>$DIR/story_archive.py</string>
+        <string>--media-dir</string>
+        <string>$DIR/data/stories</string>
+    </array>
+    <key>WorkingDirectory</key><string>$DIR</string>
+    <key>StartCalendarInterval</key>
+    <dict><key>Hour</key><integer>5</integer><key>Minute</key><integer>30</integer></dict>
+    <key>StandardOutPath</key><string>$DIR/stories.log</string>
+    <key>StandardErrorPath</key><string>$DIR/stories.err</string>
+    <key>RunAtLoad</key><false/>
+</dict>
+</plist>
+STORIES_EOF
+        if plutil -lint "$SP" >/dev/null 2>&1; then
+            launchctl unload "$SP" 2>/dev/null || true
+            launchctl load "$SP" 2>/dev/null && \
+                echo "✅ Archivador de historias programado a las 05:30 (gratis)." || \
+                echo "⚠️  Plist creado pero no cargado."
+            echo "   Log: $DIR/stories.log"
+            echo "   ⚠️  Necesita Brave CERRADO (lee la sesión de la burner)."
+        else
+            echo "❌ Plist inválido."; plutil -lint "$SP"; exit 1
+        fi
+        exit 0 ;;
 esac
 
 HOUR="${1:-5}"
