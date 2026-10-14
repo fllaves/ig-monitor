@@ -291,6 +291,16 @@ frescura por fuente · y si la **rutina diaria está programada**.
 
 Código de salida: `0` todo bien · `1` avisos · `2` fallos críticos.
 
+### ¿La rutina no corre?
+
+Tener la tarea en el `crontab` **no garantiza** que se ejecute: macOS bloquea
+`cron` en Escritorio/Documentos/Descargas y no ejecuta tareas si el Mac estaba
+dormido. Para saberlo con certeza:
+
+```bash
+./cron_test.sh     # instala 2 tareas de prueba, espera 80 s y te dice qué falla
+```
+
 ## Solución de problemas
 
 - **"Falta APIFY_TOKEN"**: crea `.env` y pega tu token, o define la variable

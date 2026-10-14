@@ -253,6 +253,12 @@ def chequear_frescura() -> None:
             pass
         add("ok" if horas < 26 else "warn", src, texto)
 
+    # La sync principal (Apify) es la que debe correr a diario
+    if "apify" not in ultimas:
+        add("fail", "apify", "NUNCA se ha sincronizado → la rutina no está corriendo")
+    elif "apify-watch" not in ultimas:
+        add("info", "apify-watch", "sin datos (la rutina con --watch aún no ha corrido)")
+
 
 def chequear_automatizacion() -> None:
     seccion("AUTOMATIZACIÓN")
@@ -285,6 +291,16 @@ def chequear_automatizacion() -> None:
 
     if shutil.which("python3"):
         add("ok", "python3 localizable", shutil.which("python3"))
+
+    # ¿La rutina ha corrido ALGUNA VEZ de verdad? (el crontab puede estar
+    # instalado y no ejecutarse nunca: Mac dormido o bloqueo TCC de macOS)
+    log = Path(__file__).resolve().parent / "daily.log"
+    if log.exists():
+        cuando = datetime.fromtimestamp(log.stat().st_mtime, tz=timezone.utc).isoformat()
+        add("ok", "daily.log", f"existe, {hace(cuando)}")
+    else:
+        add("fail", "daily.log", "NO existe → la rutina nunca se ha ejecutado")
+        add("info", "Diagnóstico de cron", "./cron_test.sh")
 
 
 def main() -> int:
