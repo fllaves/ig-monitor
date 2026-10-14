@@ -262,6 +262,21 @@ def chequear_frescura() -> None:
 
 def chequear_automatizacion() -> None:
     seccion("AUTOMATIZACIÓN")
+    # launchd: en macOS es MÁS fiable que cron (ejecuta lo perdido al despertar)
+    plist = Path.home() / "Library/LaunchAgents/com.igfv.igmonitor.daily.plist"
+    if plist.exists():
+        try:
+            r = subprocess.run(["launchctl", "list"], capture_output=True,
+                               text=True, timeout=10)
+            cargado = "com.igfv.igmonitor.daily" in (r.stdout or "")
+            add("ok" if cargado else "warn", "launchd (recomendado)",
+                "cargado ✅" if cargado else "instalado pero NO cargado")
+        except (OSError, subprocess.SubprocessError):
+            add("info", "launchd", "plist instalado (no se pudo consultar)")
+    else:
+        add("info", "launchd (recomendado)",
+            "./install_launchd.sh  ← no depende de que el Mac esté despierto")
+
     crontab = ""
     try:
         r = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
@@ -291,21 +306,6 @@ def chequear_automatizacion() -> None:
 
     if shutil.which("python3"):
         add("ok", "python3 localizable", shutil.which("python3"))
-
-    # launchd: en macOS es MÁS fiable que cron (ejecuta lo perdido al despertar)
-    plist = Path.home() / "Library/LaunchAgents/com.igfv.igmonitor.daily.plist"
-    if plist.exists():
-        try:
-            r = subprocess.run(["launchctl", "list"], capture_output=True,
-                               text=True, timeout=10)
-            cargado = "com.igfv.igmonitor.daily" in (r.stdout or "")
-            add("ok" if cargado else "warn", "launchd (recomendado)",
-                "cargado ✅" if cargado else "instalado pero NO cargado")
-        except (OSError, subprocess.SubprocessError):
-            add("info", "launchd", "plist instalado (no se pudo consultar)")
-    else:
-        add("info", "launchd (recomendado)",
-            "./install_launchd.sh  ← no depende de que el Mac esté despierto")
 
     # ¿La rutina ha corrido ALGUNA VEZ de verdad? (el crontab puede estar
     # instalado y no ejecutarse nunca: Mac dormido o bloqueo TCC de macOS)
