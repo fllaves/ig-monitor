@@ -27,7 +27,9 @@ rm -f "$BASE.heartbeat" "$BASE.desktop"
 # Instala las dos tareas de prueba (sin tocar la rutina real)
 ( crontab -l 2>/dev/null | grep -v "$TAG"
   echo "* * * * * /bin/date >> $BASE.heartbeat 2>&1 # $TAG"
-  echo "* * * * * cd '$DIR' && pwd >> $BASE.desktop 2>&1 # $TAG"
+  # Lo importante: LEER un archivo de la carpeta (no solo hacer `cd`).
+  # macOS bloquea la lectura de ~/Desktop sin permiso, y `cd` no lo detecta.
+  echo "* * * * * cd '$DIR' && /bin/cat daily.py > $BASE.desktop 2>&1 # $TAG"
 ) | crontab - || { echo "❌ No se pudo escribir el crontab."; exit 1; }
 
 echo "→ Tareas de prueba instaladas. Esperando hasta 80 s a que cron las ejecute…"
@@ -42,13 +44,13 @@ echo; echo
 if [ -f "$BASE.heartbeat" ]; then
     echo "✅ cron SÍ ejecuta tareas en este Mac."
     if [ -f "$BASE.desktop" ]; then
-        echo "✅ cron SÍ puede acceder a la carpeta del proyecto."
+        echo "✅ cron SÍ puede LEER archivos de la carpeta del proyecto."
         echo
         echo "   Entonces la rutina debería funcionar. Si no hay daily.log,"
         echo "   revisa que el Mac esté ENCENDIDO a la hora programada"
         echo "   (cron no ejecuta tareas perdidas si estaba dormido)."
     else
-        echo "❌ cron NO puede acceder a la carpeta del proyecto."
+        echo "❌ cron NO puede LEER los archivos (bloqueo TCC de macOS)."
         echo
         echo "   CAUSA: macOS protege Escritorio/Documentos/Descargas (TCC)."
         echo

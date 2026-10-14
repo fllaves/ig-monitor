@@ -4,6 +4,8 @@ data/
 .streamlit/secrets.toml
 __pycache__/
 *.pyc
+*.log
+*.err
 .DS_Store
 *.json
 
