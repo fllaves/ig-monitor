@@ -293,13 +293,18 @@ Código de salida: `0` todo bien · `1` avisos · `2` fallos críticos.
 
 ### ¿La rutina no corre?
 
-Tener la tarea en el `crontab` **no garantiza** que se ejecute: macOS bloquea
-`cron` en Escritorio/Documentos/Descargas y no ejecuta tareas si el Mac estaba
-dormido. Para saberlo con certeza:
+Tener la tarea en el `crontab` **no garantiza** que se ejecute: `cron` **no
+ejecuta tareas perdidas** si el Mac estaba dormido. Para macOS lo fiable es
+**launchd**, que sí las ejecuta al despertar:
 
 ```bash
-./cron_test.sh     # instala 2 tareas de prueba, espera 80 s y te dice qué falla
+./install_launchd.sh            # a las 05:00 con --watch (recomendado)
+./install_launchd.sh --status   # ver si está cargado
+./install_launchd.sh --run-now  # ejecutarlo ya (prueba real)
+./install_cron.sh --remove      # quitar el cron para no duplicar
 ```
+
+¿Dudas de si `cron` funciona en tu Mac? `./cron_test.sh` lo comprueba en 80 s.
 
 ## Solución de problemas
 
