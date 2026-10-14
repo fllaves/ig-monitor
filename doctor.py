@@ -255,7 +255,8 @@ def chequear_frescura() -> None:
 
     # La sync principal (Apify) es la que debe correr a diario
     if "apify" not in ultimas:
-        add("fail", "apify", "NUNCA se ha sincronizado → la rutina no está corriendo")
+        add("fail", "apify",
+            "NUNCA se ha sincronizado (revisa el crédito de Apify y el daily.log)")
     elif "apify-watch" not in ultimas:
         add("info", "apify-watch", "sin datos (la rutina con --watch aún no ha corrido)")
 
@@ -316,9 +317,11 @@ def chequear_gasto(offline: bool) -> None:
 
     if dias and gasto:
         proyeccion = (gasto / len(dias)) * 30
-        add("ok" if proyeccion <= tope else "fail", "Proyección a 30 días",
+        cabe = proyeccion <= tope
+        add("ok" if cabe else "warn", "Proyección a 30 días",
             f"${proyeccion:.2f}/mes " +
-            ("✅ cabe en el plan" if proyeccion <= tope else "❌ EXCEDE el plan $5"))
+            ("✅ cabe en el plan" if cabe else
+             "❌ según el histórico (con modo económico: ~$1.4/mes)"))
     if pct >= 95:
         add("fail", "Sin crédito",
             "usa la burner (gratis) o espera al reinicio del ciclo")
