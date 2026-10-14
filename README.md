@@ -273,6 +273,24 @@ LINKEDIN_PROFILE=tu-usuario-linkedin
 - `storage.scrub_identifiers()` limpia la base (incluida Turso) al arrancar.
 - Los enlaces usan `display_text` para que la URL real no se vea en pantalla.
 
+## 🩺 Diagnóstico de salud
+
+`doctor.py` responde en segundos a la única pregunta que importa: **¿el sistema
+está vivo y acumulando datos?**
+
+```bash
+python3 doctor.py              # chequeo completo (valida el token con Apify)
+python3 doctor.py --no-network # sin llamar a Apify
+python3 doctor.py --fix        # limpia historias huérfanas y sanea la base
+python3 doctor.py --json       # salida legible por máquina
+```
+
+Comprueba: configuración y secretos · validez real del token · escritura en la
+base · **privacidad** (que no queden nombres reales) · datos acumulados ·
+frescura por fuente · y si la **rutina diaria está programada**.
+
+Código de salida: `0` todo bien · `1` avisos · `2` fallos críticos.
+
 ## Solución de problemas
 
 - **"Falta APIFY_TOKEN"**: crea `.env` y pega tu token, o define la variable
