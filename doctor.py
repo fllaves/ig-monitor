@@ -326,6 +326,7 @@ def chequear_gasto(offline: bool) -> None:
 
 def chequear_automatizacion() -> None:
     seccion("AUTOMATIZACIÓN")
+    launchd_ok = False
     # launchd: en macOS es MÁS fiable que cron (ejecuta lo perdido al despertar)
     plist = Path.home() / "Library/LaunchAgents/com.igfv.igmonitor.daily.plist"
     if plist.exists():
@@ -333,6 +334,7 @@ def chequear_automatizacion() -> None:
             r = subprocess.run(["launchctl", "list"], capture_output=True,
                                text=True, timeout=10)
             cargado = "com.igfv.igmonitor.daily" in (r.stdout or "")
+            launchd_ok = cargado
             add("ok" if cargado else "warn", "launchd (recomendado)",
                 "cargado ✅" if cargado else "instalado pero NO cargado")
         except (OSError, subprocess.SubprocessError):
@@ -347,19 +349,21 @@ def chequear_automatizacion() -> None:
         if r.returncode == 0:
             crontab = r.stdout
         else:
-            add("warn", "crontab", (r.stderr or "vacío o sin permisos").strip()[:60])
-            return
+            add("info", "crontab", (r.stderr or "vacío o sin permisos").strip()[:50])
+            crontab = ""
     except (OSError, subprocess.SubprocessError) as exc:
-        add("warn", "crontab", f"no se pudo leer: {exc}"[:60])
-        return
+        add("info", "crontab", f"no se pudo leer: {exc}"[:50])
+        crontab = ""
 
     tareas = [l for l in crontab.splitlines() if "ig-monitor" in l or "daily.py" in l]
     if tareas:
         for t in tareas:
-            add("ok", "Rutina programada", t.strip()[:60])
+            add("ok", "Rutina diaria (cron)", t.strip()[:58])
+    elif launchd_ok:
+        add("ok", "Rutina diaria", "activa vía launchd ✅ (no hace falta cron)")
     else:
         add("fail", "Rutina diaria", "NO programada → el historial no crecerá solo")
-        add("info", "Cómo activarla", "./install_cron.sh")
+        add("info", "Cómo activarla", "./install_launchd.sh")
 
     story = [l for l in crontab.splitlines() if "story_archive" in l]
     if story:
@@ -377,6 +381,27 @@ def chequear_automatizacion() -> None:
     if log.exists():
         cuando = datetime.fromtimestamp(log.stat().st_mtime, tz=timezone.utc).isoformat()
         add("ok", "daily.log", f"existe, {hace(cuando)}")
+        # El fallo clásico de macOS: la rutina se ejecuta pero NO puede leer el
+        # proyecto (TCC bloquea Escritorio/Documentos/Descargas).
+        try:
+            contenido = log.read_text(errors="replace")
+        except OSError:
+            contenido = ""
+        tiene_error_tcc = ("Operation not permitted" in contenido
+                           or "can't open file" in contenido)
+        casa = str(Path.home())
+        proyecto = str(Path(__file__).resolve())
+        protegido = any(proyecto.startswith(f"{casa}/{c}/")
+                        for c in ("Desktop", "Documents", "Downloads"))
+        if tiene_error_tcc and protegido:
+            add("fail", "La rutina NO puede leer los archivos",
+                "bloqueo TCC de macOS (estás en una carpeta protegida)")
+            add("info", "Solución", "./move_project.sh --yes")
+        elif tiene_error_tcc:
+            add("info", "El log tiene un fallo TCC antiguo",
+                "ya no aplica: el proyecto está fuera de carpetas protegidas")
+        elif contenido.strip():
+            add("ok", "Última corrida del log", "sin errores de permisos")
     else:
         add("fail", "daily.log", "NO existe → la rutina nunca se ha ejecutado")
         add("info", "Diagnóstico de cron", "./cron_test.sh")
