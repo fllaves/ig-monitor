@@ -40,6 +40,13 @@ def load_all() -> Dict[str, Any]:
         st.warning(f"⚠️ Último error de base de datos: {storage.last_db_error()}")
     if not storage.get_watchlist():
         storage.add_watch_accounts(config.WATCHLIST)
+    # Aviso claro si falta el mapeo: sin él no se pueden mostrar los códigos
+    # ni sanear la base, y el panel tendría que inventar códigos derivados.
+    if config.mapping_missing() and storage.get_watchlist():
+        st.warning("⚠️ **Falta `WATCH_MAP` en los secretos.** Las cuentas destacadas se "
+                   "muestran con códigos derivados y la base no se puede sanear. "
+                   "Añádelo en Streamlit → *Settings → Secrets* (mira "
+                   "`.streamlit/secrets.toml.example`).")
     history = storage.get_profile_history()
     latest = history[-1] if history else None
     prev = history[-2] if len(history) >= 2 else None

@@ -95,12 +95,35 @@ def mask(text):
     return out
 
 
+def _derived_code(raw: str) -> str:
+    """Código estable derivado cuando falta el mapeo.
+
+    Es una red de seguridad: si `WATCH_MAP` no está configurado, el panel jamás
+    debe mostrar el usuario real. Se genera un código neutro y estable a partir
+    del nombre, de modo que la misconfiguración se ve sin filtrar nada.
+    """
+    import hashlib
+    return "U" + hashlib.sha1(raw.strip().lower().encode("utf-8")).hexdigest()[:4].upper()
+
+
 def display_name(value: str) -> str:
-    """Nombre seguro para mostrar: código si es una cuenta destacada."""
+    """Nombre seguro para mostrar: código si es una cuenta destacada.
+
+    Nunca devuelve un usuario real: si no hay mapeo y el valor parece un usuario
+    (más de 4 caracteres), devuelve un código derivado.
+    """
     raw = str(value or "").strip().lstrip("@")
     if not raw:
         return ""
-    return mask(to_code(raw))
+    code = to_code(raw)
+    if code != raw:
+        return code
+    return _derived_code(raw) if len(raw) > 4 else raw
+
+
+def mapping_missing() -> bool:
+    """True si hay cuentas destacadas pero falta el mapeo `WATCH_MAP`."""
+    return not watch_map()
 
 
 # ¿Mostrar enlaces reales? Un enlace que funcione CONTIENE el identificador

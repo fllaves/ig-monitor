@@ -319,13 +319,54 @@ def chequear_automatizacion() -> None:
         add("info", "Solución recomendada", "./install_launchd.sh")
 
 
+def imprimir_secretos() -> None:
+    """Imprime el bloque exacto para Streamlit → Settings → Secrets.
+
+    Lee tu `.env` local y lo formatea como TOML, para no transcribir a mano
+    (una errata rompe el arranque o deja nombres reales a la vista).
+    """
+    import config
+
+    def esc(v) -> str:
+        return str(v or "").replace("\\", "\\\\").replace('"', '\\"')
+
+    mapa = ",".join(f"{c}:{r}" for c, r in sorted(config.watch_map().items()))
+    print("\n" + "═" * 66)
+    print("  PEGA ESTO EN STREAMLIT → Settings → Secrets")
+    print("  ⚠️  Contiene tus tokens: no compartas esta pantalla.")
+    print("═" * 66 + "\n")
+    for clave, valor in [
+        ("APIFY_TOKEN", config.APIFY_TOKEN),
+        ("IG_USERNAME", config.USERNAME),
+        ("DISPLAY_NAME", config.DISPLAY_NAME),
+        ("LINKEDIN_PROFILE", config.LINKEDIN_PROFILE),
+        ("DATABASE_URL", getattr(config, "DATABASE_URL", "")),
+        ("DATABASE_AUTH_TOKEN", getattr(config, "DATABASE_AUTH_TOKEN", "")),
+        ("WATCHLIST", ",".join(config.WATCHLIST)),
+        ("WATCH_MAP", mapa),
+        ("SHOW_LINKS", "true" if config.SHOW_LINKS else "false"),
+        ("TELEGRAM_BOT_TOKEN", config.TELEGRAM_BOT_TOKEN),
+        ("TELEGRAM_CHAT_ID", config.TELEGRAM_CHAT_ID),
+    ]:
+        print(f'{clave} = "{esc(valor)}"')
+    print("\n" + "═" * 66)
+    print("  Después: Manage app → Reboot (los secretos se leen al arrancar).")
+    print("═" * 66 + "\n")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Chequeo de salud del centro de monitoreo")
     ap.add_argument("--no-network", action="store_true", help="no llamar a Apify")
     ap.add_argument("--json", action="store_true", help="salida JSON")
     ap.add_argument("--fix", action="store_true",
                     help="limpia historias huérfanas y vuelve a sanear identificadores")
+    ap.add_argument("--secrets", action="store_true",
+                    help="imprime el bloque exacto para Streamlit Secrets")
     args = ap.parse_args()
+
+    if args.secrets:
+        imprimir_secretos()
+        return 0
 
     if args.fix:
         try:
