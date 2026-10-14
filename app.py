@@ -644,7 +644,7 @@ churn = analytics.relation_churn(events)
 if churn:
     st.markdown("**Cuentas con más movimiento (serial follow/unfollow)**")
     st.dataframe([{
-        "Usuario": c["username"], "Nombre": c["full_name"] or "",
+        "Usuario": config.display_name(c["username"]), "Nombre": c["full_name"] or "",
         "Bajas": c["lost_count"], "Altas": c["new_count"],
         "Eventos": c["total"], "Último": (c["last_event"] or "")[:10],
     } for c in churn[:20]], width="stretch", hide_index=True)
@@ -653,7 +653,7 @@ re_follow = analytics.re_follows(events)
 if re_follow:
     st.markdown("**Vuelven a aparecer (baja → alta)**")
     st.dataframe([{
-        "Usuario": r["username"], "Nombre": r["full_name"] or "",
+        "Usuario": config.display_name(r["username"]), "Nombre": r["full_name"] or "",
         "Eventos": r["eventos"], "Último": (r["ultimo"] or "")[:10],
     } for r in re_follow[:20]], width="stretch", hide_index=True)
 
@@ -704,7 +704,7 @@ if inter_idx:
     st.caption("Combina follows/unfollows, menciones que **haces**, menciones que **te hacen** "
                "y comentarios que **recibes** (las señales públicas disponibles).")
     st.dataframe([{
-        "Usuario": i["username"],
+        "Usuario": config.display_name(i["username"]),
         "Follows/Unfollows": i["follow_events"],
         "Menciones que haces": i["mentioned_by_me"],
         "Menciones que te hacen": i["mentions_me"],
@@ -804,7 +804,7 @@ if comments:
     with col_top:
         st.markdown("**Fans más activos**")
         if cstats["top_commenters"]:
-            st.dataframe([{"Usuario": t["username"], "Comentarios": t["count"]}
+            st.dataframe([{"Usuario": config.display_name(t["username"]), "Comentarios": t["count"]}
                           for t in cstats["top_commenters"]], width="stretch", hide_index=True)
     with st.expander("Ver todos los comentarios"):
         st.dataframe([{
@@ -830,7 +830,7 @@ if mentions:
         "Quién": m.get("owner_username"),
         "Caption": config.mask((m.get("caption") or "")[:120]),
         "Likes": m.get("likes_count"),
-        "URL": m.get("url") or "",
+        "URL": config.safe_url(m.get("url")),
     } for m in mentions], width="stretch", hide_index=True)
 else:
     st.caption("Aún no hay menciones. Se descargarán en la próxima sincronización.")
@@ -875,7 +875,7 @@ for p in posts:
         "Comentarios": p.get("commentsCount"),
         "Vistas": p.get("videoPlayCount") or p.get("videoViewCount") or 0,
         "ER %": p.get("engagement_rate"),
-        "URL": p.get("url") or "",
+        "URL": config.safe_url(p.get("url")),
     })
 
 if rows:
@@ -929,7 +929,7 @@ st.divider()
 st.subheader("⭐ Cuentas destacadas")
 watch = storage.get_watchlist()
 if watch:
-    watch_tabs = st.tabs([f"@{w['username']}" for w in watch])
+    watch_tabs = st.tabs([f"@{config.display_name(w['username'])}" for w in watch])
     for wtab, w in zip(watch_tabs, watch):
         with wtab:
             rep = analytics.account_report(
@@ -967,7 +967,7 @@ if watch:
                         "Tipo": post.get("type") or "",
                         "Caption": config.mask((post.get("caption") or "").replace("\n", " ")[:100]),
                         "Likes": post.get("likesCount"),
-                        "URL": post.get("url") or "",
+                        "URL": config.safe_url(post.get("url")),
                     } for post in rep["latest_posts"][:12]], width="stretch", hide_index=True)
             else:
                 st.caption("Sin datos de perfil todavía: pulsa «Enriquecer destacadas (Apify)» "
@@ -1004,7 +1004,7 @@ if watch:
                 st.dataframe([{
                     "Fecha": (c.get("timestamp") or "")[:10],
                     "Comentario": config.mask(c.get("text") or ""),
-                    "Post": c.get("post_url") or "",
+                    "Post": config.safe_url(c.get("post_url")),
                 } for c in wi["my_comments_on_theirs"]], width="stretch", hide_index=True,
                     column_config={"Post": st.column_config.LinkColumn("Post", display_text="🔗 Abrir")})
             if wi["their_comments_on_mine"]:
@@ -1026,7 +1026,7 @@ if watch:
                               else "Tú → ellas"),
                 "Historia de": s.get("source_username"),
                 "Menciona a": s.get("mentioned_username"),
-                "Enlace": s.get("url") or "",
+                "Enlace": config.safe_url(s.get("url")),
             } for s in (wi["stories_from_them"] + wi["stories_of_me"])]
             if story_rows:
                 st.dataframe(story_rows, width="stretch", hide_index=True,
@@ -1052,7 +1052,7 @@ if watch:
                     "Fecha": (t.get("taken_at") or "")[:10],
                     "Texto": (t.get("text") or "")[:130],
                     "Likes": t.get("like_count"),
-                    "Enlace": t.get("url") or "",
+                    "Enlace": config.safe_url(t.get("url")),
                 } for t in tposts], width="stretch", hide_index=True,
                     column_config={"Enlace": st.column_config.LinkColumn("Enlace", display_text="🔗 Abrir")})
             else:
@@ -1066,7 +1066,7 @@ if watch:
                         "Caption": config.mask((p.get("caption") or "").replace("\n", " ")[:90]),
                         "Likes": p.get("likes_count"),
                         "Comentarios": p.get("comments_count"),
-                        "URL": p.get("url") or "",
+                        "URL": config.safe_url(p.get("url")),
                     } for p in wi["their_posts"][:30]], width="stretch", hide_index=True,
                         column_config={"URL": st.column_config.LinkColumn("URL", display_text="🔗 Abrir")})
             if not (wi["my_comments_on_theirs"] or wi["their_comments_on_mine"] or wi["their_posts"]):
@@ -1158,7 +1158,8 @@ with st.expander("➕ Gestionar cuentas destacadas"):
         st.rerun()
     if watch:
         remove_name = st.selectbox("Quitar de destacadas",
-                                   [w["username"] for w in watch], key="watch_rm")
+                                   [w["username"] for w in watch], key="watch_rm",
+                                   format_func=config.display_name)
         if st.button("Quitar cuenta", width="stretch"):
             storage.remove_watch_account(remove_name)
             st.rerun()
@@ -1184,7 +1185,7 @@ if _stories:
             "Menciones": ", ".join(s.get("mentions") or []),
             "Enlaces": ", ".join(s.get("links") or []),
             "Medio": "📁 local" if s.get("media_path") else "",
-            "Ver": s.get("url") or s.get("media_url") or "",
+            "Ver": config.safe_url(s.get("url") or s.get("media_url")),
         } for s in _stories], width="stretch", hide_index=True,
             column_config={"Ver": st.column_config.LinkColumn("Ver", display_text="🔗 Abrir")})
 else:
@@ -1230,7 +1231,7 @@ if watch_aff:
 
     aff_rows = analytics.affinity_table(watch_aff, _card_for, _inter_for)
     st.dataframe([{
-        "Cuenta": f"@{r['username']}",
+        "Cuenta": f"@{config.display_name(r['username'])}",
         "Afinidad": r["score"],
         "Señales": r["total_signals"],
         "Última señal": (r["last_signal"] or "")[:10],
@@ -1276,7 +1277,8 @@ with st.expander("➕ Gestionar perfiles de LinkedIn"):
         st.rerun()
     if li_profiles:
         li_rm = st.selectbox("Quitar perfil",
-                             [p["identifier"] for p in li_profiles], key="li_rm")
+                             [p["identifier"] for p in li_profiles], key="li_rm",
+                             format_func=config.display_name)
         if st.button("Quitar perfil", width="stretch"):
             storage.remove_linkedin_profile(li_rm)
             st.rerun()
@@ -1310,7 +1312,7 @@ if li_profiles:
         mios = [a for a in acts if me_li and (a.get("author_id") or "").lower() == me_li]
         fechas = [(a.get("reposted_at") or a.get("posted_at") or "") for a in acts]
         resumen_li.append({
-            "Perfil": f"@{ident}",
+            "Perfil": f"@{config.display_name(ident)}",
             "Elementos": len(acts),
             "Compartió tu contenido": len(mios),
             "Última actividad": max([f for f in fechas if f], default="")[:10],
@@ -1320,19 +1322,59 @@ if li_profiles:
     resumen_li.sort(key=lambda r: (-r["Compartió tu contenido"], -r["Elementos"]))
     st.dataframe(resumen_li, width="stretch", hide_index=True)
 
-    if li_activity:
-        with st.expander(f"Ver toda la actividad ({len(li_activity)})"):
+    li_tabs = st.tabs([f"@{config.display_name(p.get('identifier'))}" for p in li_profiles])
+    for ltab, prof in zip(li_tabs, li_profiles):
+        ident = (prof.get("identifier") or "").lower()
+        acts = [a for a in li_activity if (a.get("profile") or "").lower() == ident]
+        mios = [a for a in acts if me_li and (a.get("author_id") or "").lower() == me_li]
+        with ltab:
+            l1, l2, l3 = st.columns(3)
+            l1.metric("Elementos públicos", len(acts))
+            l2.metric("Compartió tu contenido", len(mios))
+            fechas_p = [(a.get("reposted_at") or a.get("posted_at") or "") for a in acts]
+            l3.metric("Última actividad",
+                      (max([f for f in fechas_p if f], default="")[:10]) or "—")
+
+            if mios:
+                st.success(f"🎯 Compartió {len(mios)} publicación(es) tuya(s)")
+                for a in mios:
+                    st.markdown(f"**{(a.get('reposted_at') or a.get('posted_at') or '')[:10]}** · "
+                                f"{(a.get('content') or '')[:140]}")
+                    if config.SHOW_LINKS and a.get("url"):
+                        st.markdown(f"[🔗 Abrir publicación]({a['url']})")
+            else:
+                st.caption("No aparece compartiendo tu contenido (hasta donde llegan "
+                           "los datos públicos).")
+
+            if acts:
+                st.markdown("**Su actividad pública**")
+                st.dataframe([{
+                    "Fecha": (a.get("reposted_at") or a.get("posted_at") or "")[:10],
+                    "Tipo": "Compartido" if a.get("reposted_by") else "Publicación",
+                    "Autor original": a.get("author_name") or "",
+                    "Texto": (a.get("content") or "")[:110],
+                    "Likes": a.get("likes"),
+                    "Tuyo": "✅" if me_li and (a.get("author_id") or "").lower() == me_li else "",
+                    "Enlace": config.safe_url(a.get("url")),
+                } for a in acts], width="stretch", hide_index=True,
+                    column_config={"Enlace": st.column_config.LinkColumn(
+                        "Enlace", display_text="🔗 Abrir")})
+            else:
+                st.caption("Sin actividad registrada: pulsa **🔄 Sincronizar LinkedIn**.")
+
+    if li_activity and len(li_profiles) > 1:
+        with st.expander(f"Ver toda la actividad mezclada ({len(li_activity)})"):
             st.dataframe([{
                 "Fecha": (a.get("reposted_at") or a.get("posted_at") or "")[:10],
-                "Perfil": f"@{a.get('profile') or ''}",
+                "Perfil": f"@{config.display_name(a.get('profile'))}",
                 "Autor original": a.get("author_name") or "",
-                "Compartido por": a.get("reposted_by_name") or "",
                 "Texto": (a.get("content") or "")[:110],
                 "Likes": a.get("likes"),
                 "Tu contenido": "✅" if me_li and (a.get("author_id") or "").lower() == me_li else "",
-                "Enlace": a.get("url") or "",
+                "Enlace": config.safe_url(a.get("url")),
             } for a in li_activity], width="stretch", hide_index=True,
-                column_config={"Enlace": st.column_config.LinkColumn("Enlace", display_text="🔗 Abrir")})
+                column_config={"Enlace": st.column_config.LinkColumn(
+                    "Enlace", display_text="🔗 Abrir")})
 else:
     st.caption("Añade perfiles de LinkedIn en el gestor de arriba para empezar a "
                "monitorizar su actividad pública.")

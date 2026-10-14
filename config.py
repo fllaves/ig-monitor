@@ -77,13 +77,42 @@ def personal_identifiers() -> list:
 
 
 def mask(text):
-    """Oculta cualquier aparición de un identificador personal en textos mostrados."""
+    """Oculta identificadores reales en cualquier texto mostrado.
+
+    Convierte los usuarios de las **cuentas destacadas** en sus códigos y los
+    **identificadores personales** en `DISPLAY_NAME`. Es defensa en profundidad:
+    aunque la base aún tuviera un nombre real (p. ej. la nube sin sanear), el
+    panel mostraría el código.
+    """
     if not text:
         return text
     out = str(text)
+    for code, real in watch_map().items():
+        if real and real.lower() != code.lower():
+            out = re.sub(re.escape(real), code, out, flags=re.IGNORECASE)
     for ident in personal_identifiers():
         out = re.sub(re.escape(ident), DISPLAY_NAME, out, flags=re.IGNORECASE)
     return out
+
+
+def display_name(value: str) -> str:
+    """Nombre seguro para mostrar: código si es una cuenta destacada."""
+    raw = str(value or "").strip().lstrip("@")
+    if not raw:
+        return ""
+    return mask(to_code(raw))
+
+
+# ¿Mostrar enlaces reales? Un enlace que funcione CONTIENE el identificador
+# (threads.net/@usuario/…), así que por defecto van enmascarados.
+SHOW_LINKS = str(_get("SHOW_LINKS", "false")).strip().lower() in ("1", "true", "si", "sí", "yes")
+
+
+def safe_url(url: str) -> str:
+    """URL lista para mostrar: real si SHOW_LINKS, enmascarada si no."""
+    if not url:
+        return ""
+    return str(url) if SHOW_LINKS else mask(url)
 
 # --- Apify -------------------------------------------------------------------
 APIFY_TOKEN = _get("APIFY_TOKEN", "").strip()
