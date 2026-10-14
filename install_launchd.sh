@@ -6,10 +6,11 @@
 #   programada, ese día se salta para siempre. launchd SÍ las ejecuta en cuanto
 #   el Mac despierta. Es la diferencia entre "a veces corre" y "siempre corre".
 #
-#   ./install_launchd.sh            # instala a las 05:00 (con --watch)
+#   ./install_launchd.sh            # instala a las 05:00 (modo económico)
 #   ./install_launchd.sh 7 30       # a las 07:30
 #   ./install_launchd.sh --status   # ver si está cargado
 #   ./install_launchd.sh --run-now  # ejecutarlo ya (prueba real)
+#   ./install_launchd.sh --full     # modo completo (comentarios, listas, LinkedIn)
 #   ./install_launchd.sh --remove   # desinstalar
 
 set -u
@@ -56,7 +57,6 @@ cat > "$PLIST" <<PLIST_EOF
     <array>
         <string>$PY</string>
         <string>$DIR/daily.py</string>
-        <string>--watch</string>
     </array>
     <key>WorkingDirectory</key>
     <string>$DIR</string>

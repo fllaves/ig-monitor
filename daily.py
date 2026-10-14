@@ -69,21 +69,23 @@ def main() -> int:
                 print(f"  ✖ Error: {exc}", file=sys.stderr)
                 storage.log_ingest("apify", "rutina diaria", 0, status="error",
                                    message=str(exc)[:300])
-            if lean:
-                args.watch = False   # LinkedIn/watchlist también gasta: solo en --full
-            if args.watch:
+            # Threads es BARATO (~$0.02): se consulta siempre.
+            try:
+                print("→ Consultando Threads…")
+                tres = sync.do_threads_sync(token=config.APIFY_TOKEN)
+                print(f"  {tres.get('message', '')}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"  ⚠ threads: {exc}", file=sys.stderr)
+
+            # LinkedIn y las interacciones de destacadas son CAROS (~$0.30):
+            # solo en modo completo (--full) o si se pide --watch explícito.
+            if args.watch and not lean:
                 try:
                     print("→ Sincronizando interacciones de destacadas…")
                     wres = sync.do_watch_sync(token=config.APIFY_TOKEN)
                     print(f"  {wres.get('posts', 0)} posts / {wres.get('comments', 0)} comentarios")
                 except Exception as exc:  # noqa: BLE001
                     print(f"  ⚠ destacadas: {exc}", file=sys.stderr)
-                try:
-                    print("→ Consultando Threads…")
-                    tres = sync.do_threads_sync(token=config.APIFY_TOKEN)
-                    print(f"  {tres.get('message', '')}")
-                except Exception as exc:  # noqa: BLE001
-                    print(f"  ⚠ threads: {exc}", file=sys.stderr)
                 try:
                     print("→ Consultando LinkedIn…")
                     lres = sync.do_linkedin_sync(token=config.APIFY_TOKEN)
