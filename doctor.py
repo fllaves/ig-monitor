@@ -260,6 +260,70 @@ def chequear_frescura() -> None:
         add("info", "apify-watch", "sin datos (la rutina con --watch aún no ha corrido)")
 
 
+def chequear_gasto(offline: bool) -> None:
+    """Presupuesto de Apify: gasto del ciclo, desglose y proyección a 30 días."""
+    import config
+
+    seccion("PRESUPUESTO APIFY")
+    if offline or not config.APIFY_TOKEN:
+        add("info", "Gasto", "omitido (--no-network o sin token)")
+        return
+
+    def api(ruta):
+        req = urllib.request.Request(
+            f"https://api.apify.com/v2/{ruta}",
+            headers={"Authorization": f"Bearer {config.APIFY_TOKEN}"})
+        with urllib.request.urlopen(req, timeout=45) as r:
+            return json.loads(r.read().decode())
+
+    try:
+        lim = api("users/me/limits").get("data", {})
+        ciclo = lim.get("monthlyUsageCycle", {})
+        tope = float((lim.get("limits") or {}).get("maxMonthlyUsageUsd") or 0)
+        inicio, fin = str(ciclo.get("startAt"))[:10], str(ciclo.get("endAt"))[:10]
+    except Exception as exc:  # noqa: BLE001
+        add("warn", "Límites de Apify", str(exc)[:60])
+        return
+
+    try:
+        runs = api("actor-runs?limit=100&desc=true").get("data", {}).get("items", [])
+    except Exception as exc:  # noqa: BLE001
+        add("warn", "Historial de runs", str(exc)[:60])
+        return
+
+    gasto, por_actor, dias = 0.0, {}, set()
+    for r in runs:
+        ts = str(r.get("startedAt") or "")[:10]
+        if inicio and ts and ts < inicio:
+            continue
+        dias.add(ts)
+        usd = float(r.get("usageTotalUsd") or 0)
+        gasto += usd
+        a = por_actor.setdefault(r.get("actId") or "?", [0, 0.0])
+        a[0] += 1
+        a[1] += usd
+
+    resta = max(0.0, tope - gasto)
+    pct = (gasto / tope * 100) if tope else 0
+    add("ok" if pct < 70 else ("warn" if pct < 95 else "fail"), "Gasto del ciclo",
+        f"${gasto:.2f} de ${tope:.2f} ({pct:.0f}%) · queda ${resta:.2f}")
+    add("info", "Ciclo", f"{inicio} → {fin}")
+
+    if por_actor:
+        peor = max(por_actor.items(), key=lambda kv: kv[1][1])
+        add("info", "Actor más caro",
+            f"{peor[0][:22]}… ${peor[1][1]:.2f} en {peor[1][0]} runs")
+
+    if dias and gasto:
+        proyeccion = (gasto / len(dias)) * 30
+        add("ok" if proyeccion <= tope else "fail", "Proyección a 30 días",
+            f"${proyeccion:.2f}/mes " +
+            ("✅ cabe en el plan" if proyeccion <= tope else "❌ EXCEDE el plan $5"))
+    if pct >= 95:
+        add("fail", "Sin crédito",
+            "usa la burner (gratis) o espera al reinicio del ciclo")
+
+
 def chequear_automatizacion() -> None:
     seccion("AUTOMATIZACIÓN")
     # launchd: en macOS es MÁS fiable que cron (ejecuta lo perdido al despertar)
@@ -417,7 +481,8 @@ def main() -> int:
         print("═" * 62)
 
     for fn in (chequear_config, lambda: chequear_apify(args.no_network), chequear_base,
-               chequear_datos, chequear_frescura, chequear_automatizacion):
+               chequear_datos, chequear_frescura, chequear_automatizacion,
+               lambda: chequear_gasto(args.no_network)):
         try:
             fn()
         except Exception as exc:  # noqa: BLE001

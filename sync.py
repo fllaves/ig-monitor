@@ -28,7 +28,7 @@ def _clear_demo_if_present() -> None:
 def do_sync(token: str = "", limit: int = None, followers_limit: int = None,
             following_limit: int = None, demo: bool = False,
             with_comments: bool = True, with_mentions: bool = True,
-            alert: bool = True) -> dict:
+            with_lists: bool = True, alert: bool = True) -> dict:
     """Ejecuta una sincronización completa y devuelve un resumen."""
     if demo:
         import demo as demo_mod
@@ -60,19 +60,23 @@ def do_sync(token: str = "", limit: int = None, followers_limit: int = None,
     except Exception as exc:  # noqa: BLE001
         summary["errors"].append(f"publicaciones: {exc}")
 
-    # 3) Seguidores
-    try:
-        followers = source.fetch_followers(limit=followers_limit or config.FOLLOWERS_LIMIT)
-        summary["followers"] = storage.save_relations(followers, "follower", captured_at)
-    except Exception as exc:  # noqa: BLE001
-        summary["errors"].append(f"seguidores: {exc}")
+    # 3) Seguidores (lo MÁS caro del plan: omitido en modo económico)
+    if with_lists:
+        try:
+            followers = source.fetch_followers(
+                limit=followers_limit or config.FOLLOWERS_LIMIT)
+            summary["followers"] = storage.save_relations(
+                followers, "follower", captured_at)
+        except Exception as exc:  # noqa: BLE001
+            summary["errors"].append(f"seguidores: {exc}")
 
-    # 4) Seguidos
-    try:
-        following = source.fetch_following(limit=following_limit or config.FOLLOWING_LIMIT)
-        summary["following"] = storage.save_relations(following, "following", captured_at)
-    except Exception as exc:  # noqa: BLE001
-        summary["errors"].append(f"seguidos: {exc}")
+    if with_lists:
+        # 4) Seguidos
+        try:
+            following = source.fetch_following(limit=following_limit or config.FOLLOWING_LIMIT)
+            summary["following"] = storage.save_relations(following, "following", captured_at)
+        except Exception as exc:  # noqa: BLE001
+            summary["errors"].append(f"seguidos: {exc}")
 
     # 5) Registrar eventos de cambio (historial persistente)
     try:

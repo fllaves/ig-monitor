@@ -31,10 +31,20 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="no enviar por Telegram")
     ap.add_argument("--limit", type=int, default=None, help="límite de publicaciones")
     ap.add_argument("--watch", action="store_true", help="sincronizar también las cuentas destacadas")
+    ap.add_argument("--full", action="store_true",
+                    help="sincronización COMPLETA (comentarios, listas de seguidores y LinkedIn). "
+                         "Caro: ~$0.40 por corrida")
+    ap.add_argument("--lean", action="store_true",
+                    help="modo económico explícito (es el comportamiento por defecto)")
     args = ap.parse_args()
 
+    # Modo económico por defecto: el plan gratuito da $5 al mes y las listas de
+    # seguidores + los comentarios son lo que más gasta. Lo caro va en --full.
+    lean = not args.full
     storage.init_db()
     print(f"=== Rutina diaria · {config.DISPLAY_NAME} ===")
+    print(f"    modo: {'ECONÓMICO (~$0.02)' if lean else 'COMPLETO (~$0.40)'}"
+          + ("" if lean else "  ← solo de vez en cuando"))
 
     result = None
     if not args.no_sync:
@@ -45,7 +55,13 @@ def main() -> int:
         else:
             print("→ Sincronizando con Apify…")
             try:
-                result = sync.do_sync(token=config.APIFY_TOKEN, limit=args.limit, alert=False)
+                result = sync.do_sync(
+                    token=config.APIFY_TOKEN,
+                    limit=args.limit or (25 if lean else None),
+                    with_lists=not lean,
+                    with_comments=not lean,
+                    with_mentions=not lean,
+                    alert=False)
                 print(f"  {result.get('message', '')}")
                 for err in result.get("errors", []):
                     print(f"  ⚠ {err}", file=sys.stderr)
@@ -53,6 +69,8 @@ def main() -> int:
                 print(f"  ✖ Error: {exc}", file=sys.stderr)
                 storage.log_ingest("apify", "rutina diaria", 0, status="error",
                                    message=str(exc)[:300])
+            if lean:
+                args.watch = False   # LinkedIn/watchlist también gasta: solo en --full
             if args.watch:
                 try:
                     print("→ Sincronizando interacciones de destacadas…")
