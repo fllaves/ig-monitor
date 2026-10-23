@@ -70,6 +70,32 @@ lateral. Los datos quedan guardados en Turso y **persisten** entre reinicios.
 > 💡 Para automatizarlo sin abrir el panel, usa el `cron` local con `sync.py`
 > apuntando a `DATABASE_URL` (ver README).
 
+## 🔒 Poner el repo en privado (sin romper la app)
+
+Streamlit Cloud solo accede a repos **públicos** con la autorización básica. Para
+los privados necesita una **segunda autorización OAuth**. **El orden importa**:
+si pones el repo privado primero, los `git push` dejan de desplegar y un Reboot
+falla.
+
+### Paso 1 — Dar acceso a repos privados (PRIMERO)
+1. Streamlit Cloud → arriba a la izquierda → click en **tu usuario de GitHub**
+2. **Settings** → pestaña **Linked accounts**
+3. En **Source control** → **Connect here**
+4. **Authorize streamlit** ← ahora marca el permiso de **repositorios privados**
+
+### Paso 2 — Hacer el repo privado
+1. GitHub → repo → **Settings** → **Danger Zone**
+2. **Change repository visibility** → **Make private**
+3. Confirma escribiendo `usuario/repo`
+
+### Paso 3 — Verificar
+1. Streamlit → **Manage app** → **Reboot**
+2. Debe arrancar igual, con los mismos secretos
+
+> **No hay riesgo de filtración**: el repo no contiene secretos (viven en
+> Streamlit Secrets) ni datos (en `data/`, gitignored). Si tardas unos minutos en
+> reautorizar, la app antigua **sigue corriendo** con la versión cacheada.
+
 ## Notas
 
 - La primera vez, la base de Turso está vacía: el panel creará las tablas solo.
