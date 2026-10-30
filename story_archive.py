@@ -146,35 +146,52 @@ def _mentions(html: str, dom_links=None, propia: str = "") -> list:
             if n not in IGNORAR_USUARIOS and n != propia and not n.startswith("_")]
 
 
+def _arrays_stickers(html: str) -> list:
+    """Devuelve el contenido de `story_bloks_stickers` (arrays balanceados).
+
+    Son los stickers PEGADOS sobre la historia. Buscar `ig_mention` suelto por
+    todo el HTML da falsos positivos (módulos de sugerencias), así que hay que
+    limitarse a este array.
+    """
+    bloques = []
+    for m in re.finditer(r'"story_bloks_stickers"\s*:\s*\[', html):
+        ini = m.end() - 1
+        prof = 0
+        for j in range(ini, min(len(html), ini + 200_000)):
+            c = html[j]
+            if c == "[":
+                prof += 1
+            elif c == "]":
+                prof -= 1
+                if prof == 0:
+                    bloques.append(html[ini:j + 1])
+                    break
+    return bloques
+
+
 def _mentions_from_html(html: str) -> list:
-    """Extrae las menciones REALES (stickers) del HTML de la historia.
+    """Extrae SOLO las menciones pegadas como sticker en la historia.
 
-    Estructura moderna de Instagram (2024+):
-        "bloks_sticker": {"sticker_data": {"ig_mention": {
-            "full_name": "...", "username": "..." }}}
-
-    También se mantiene compatibilidad con las claves antiguas
-    (`reel_mentions` / `story_mentions`).
+    Estructura real de Instagram:
+        "story_bloks_stickers": [{
+            "bloks_sticker": {"sticker_data": {"ig_mention": {
+                "full_name": "...", "username": "..." }}}
+        }]
     """
     nombres = []
+    for bloque in _arrays_stickers(html):
+        for m in re.finditer(
+                r'"ig_mention"\s*:\s*\{[^{}]{0,600}?"username"\s*:\s*"([A-Za-z0-9._]{1,40})"',
+                bloque):
+            nombres.append(m.group(1).lower())
 
-    # 1) Estructura moderna: ig_mention dentro de un bloks_sticker
-    for m in re.finditer(
-            r'"ig_mention":\s*\{[^{}]{0,600}?"username":"([A-Za-z0-9._]{1,40})"', html):
-        nombres.append(m.group(1).lower())
-
-    # 2) Por si el JSON cambia de forma: cualquier "ig_mention" cercano
-    for m in re.finditer(r'"ig_mention"', html):
-        trozo = html[m.end():m.end() + 600]
-        nombres += re.findall(r'"username":"([A-Za-z0-9._]{1,40})"', trozo)
-
-    # 3) Compatibilidad con estructuras antiguas
+    # Compatibilidad con estructuras antiguas (por si Instagram cambia)
     for clave in ("reel_mentions", "story_mentions"):
-        for m in re.finditer(rf'"{clave}":\s*\[', html):
+        for m in re.finditer(rf'"{clave}"\s*:\s*\[', html):
             trozo = html[m.end():m.end() + 4000]
-            nombres += re.findall(r'"username":"([A-Za-z0-9._]{1,40})"', trozo)
+            nombres += re.findall(r'"username"\s*:\s*"([A-Za-z0-9._]{1,40})"', trozo)
 
-    return list(dict.fromkeys(n.lower() for n in nombres))
+    return list(dict.fromkeys(nombres))
 
 
 def _links_from_html(html: str) -> list:
