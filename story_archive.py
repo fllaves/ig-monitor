@@ -321,6 +321,15 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
             externos = _links_from_html(html)
             kind = "video" if data.get("video") else "image"
 
+            # El <video> usa una URL blob: (no descargable). La real está en
+            # "video_versions" dentro del HTML.
+            if kind == "video" and str(media_url).startswith("blob:"):
+                mv = re.search(r'"video_versions"\s*:\s*\[\s*\{[^{}]{0,400}?"url"\s*:\s*"([^"]{20,})"', html)
+                if mv:
+                    media_url = mv.group(1).replace("\\/", "/")
+                elif debug:
+                    print("    (video sin URL descargable)")
+
             media_path = ""
             if media_dir and media_url:
                 ext = ".mp4" if kind == "video" else ".jpg"
@@ -466,11 +475,14 @@ def main() -> int:
                     import vision
                     if vision.disponible() or vision.asegurar_servicio():
                         pendientes = [s for s in todas
-                                      if s.get("kind") == "image" and s.get("media_path")]
+                                      if s.get("media_path")
+                                      and s.get("kind") in ("image", "video")]
                         if pendientes:
                             print(f"  → Analizando {len(pendientes)} imagen(es) con {vision.MODELO}…")
                         for s in pendientes:
-                            desc = vision.describe(s["media_path"])
+                            fn = (vision.describe_video if s.get("kind") == "video"
+                                  else vision.describe)
+                            desc = fn(s["media_path"])
                             if desc:
                                 storage.set_story_description(s["story_id"], desc)
                                 s["description"] = desc

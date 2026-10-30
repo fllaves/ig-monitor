@@ -9,8 +9,16 @@ Uso:
 """
 import base64
 import json
+import subprocess
+import sys
+import tempfile
 import urllib.request
 from pathlib import Path
+
+# Paquetes instalados dentro del proyecto (ej. imageio-ffmpeg)
+_LIB = Path(__file__).resolve().parent / "lib"
+if _LIB.is_dir() and str(_LIB) not in sys.path:
+    sys.path.insert(0, str(_LIB))
 
 OLLAMA = "http://localhost:11434"
 MODELO = "qwen2.5vl:7b"
@@ -122,6 +130,44 @@ def describe(imagen, modelo: str = MODELO) -> str:
     return texto[:200]
 
 
+def _ffmpeg() -> str:
+    import shutil
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def describe_video(video, modelo: str = MODELO) -> str:
+    """Extrae un fotograma del video y lo describe (todo local)."""
+    ruta = Path(video)
+    if not ruta.exists():
+        return ""
+    exe = _ffmpeg()
+    if not exe:
+        return ""
+    with tempfile.TemporaryDirectory() as tmp:
+        frame = Path(tmp) / "frame.jpg"
+        for seek in ("1", "0"):
+            try:
+                subprocess.run(
+                    [exe, "-y", "-loglevel", "error", "-ss", seek, "-i", str(ruta),
+                     "-frames:v", "1", "-q:v", "3", str(frame)],
+                    timeout=60, check=False,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:  # noqa: BLE001
+                continue
+            if frame.exists() and frame.stat().st_size > 0:
+                break
+        if not frame.exists():
+            return ""
+        return describe(frame, modelo)
+
+
 if __name__ == "__main__":
     import sys
     if not disponible():
@@ -129,4 +175,5 @@ if __name__ == "__main__":
                          "   /Applications/Ollama.app/Contents/Resources/ollama serve")
     print("modelos:", modelos() or "(ninguno)")
     for arg in sys.argv[1:]:
-        print(f"{arg} → {describe(arg) or '(no se pudo)'}")
+        fn = describe_video if str(arg).lower().endswith((".mp4", ".mov", ".webm")) else describe
+        print(f"{arg} → {fn(arg) or '(no se pudo)'}")
