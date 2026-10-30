@@ -135,12 +135,12 @@ IGNORAR_USUARIOS = {"explore", "blog", "about", "popular", "accounts", "direct",
 
 
 def _mentions(html: str, dom_links=None, propia: str = "") -> list:
-    """Menciones de una historia: JSON embebido + enlaces del visor."""
+    """Menciones de una historia: SOLO los stickers (story_bloks_stickers).
+
+    Los enlaces del DOM incluyen cuentas SUGERIDAS por Instagram (Mike Tyson,
+    Snoop Dogg…) y producían falsos positivos. Se ignoran a propósito.
+    """
     nombres = set(_mentions_from_html(html))
-    for h in (dom_links or []):
-        u = str(h).strip("/").lower()
-        if len(u) > 1:
-            nombres.add(u)
     propia = (propia or "").lower()
     return [n for n in sorted(nombres)
             if n not in IGNORAR_USUARIOS and n != propia and not n.startswith("_")]
