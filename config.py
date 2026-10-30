@@ -183,6 +183,11 @@ def watch_map() -> dict:
             real = real.strip().lstrip("@").lower()
             if code and real:
                 out[code] = real
+    # La cuenta propia también se mapea: si no, `real_username("IG FV")`
+    # devolvía "IG FV" y el archivador visitaba una URL inválida (0 historias).
+    if USERNAME:
+        out[DISPLAY_NAME.upper()] = USERNAME
+        out[USERNAME.upper()] = USERNAME
     return out
 
 
