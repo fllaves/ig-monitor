@@ -1352,6 +1352,20 @@ def save_story_archive(items: List[Dict[str, Any]]) -> int:
     return count
 
 
+def set_story_description(story_id: str, descripcion: str) -> None:
+    """Guarda la descripción local (modelo de visión) de una historia."""
+    conn = _connect()
+    try:
+        conn.execute("UPDATE story_archive SET description=? WHERE story_id=?",
+                     (descripcion or "", story_id))
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        global LAST_DB_ERROR
+        LAST_DB_ERROR = str(exc)
+    finally:
+        _close(conn)
+
+
 def get_story_archive(username: str = None, day: str = None) -> List[Dict[str, Any]]:
     rows = _rows("SELECT * FROM story_archive ORDER BY taken_at DESC")
     for r in rows:

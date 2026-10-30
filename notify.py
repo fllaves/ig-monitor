@@ -138,7 +138,9 @@ def build_stories_report(stories: List[Dict], day: str = "") -> str:
                 extra.append("⬅️ TE MENCIONA")
             if s.get("links"):
                 extra.append("🔗 enlace")
-            lineas.append(f"  {tipo} {hora}" + (" · " + " · ".join(extra) if extra else ""))
+            desc = (s.get("description") or "").strip()
+            lineas.append(f"  {tipo} {hora}" + (" · " + " · ".join(extra) if extra else "")
+                          + (f"\n     📝 {desc}" if desc else ""))
         lineas.append("")
 
     if etiquetados:

@@ -337,6 +337,8 @@ def main() -> int:
     ap.add_argument("--max-stories", type=int, default=25)
     ap.add_argument("--save-cookies", action="store_true",
                     help="guarda la sesión en data/cookies.json (así la rutina no necesita Brave cerrado)")
+    ap.add_argument("--no-analyze", action="store_true",
+                    help="no analizar las imágenes con el modelo local")
     ap.add_argument("--no-me", action="store_true",
                     help="no capturar tus propias historias")
     ap.add_argument("--notify", action="store_true",
@@ -418,6 +420,24 @@ def main() -> int:
         try:
             import storage
             n = storage.save_story_archive(todas)
+
+            # Análisis LOCAL de las imágenes (nada sale de tu Mac)
+            if not args.no_analyze:
+                try:
+                    import vision
+                    if vision.disponible() or vision.asegurar_servicio():
+                        pendientes = [s for s in todas
+                                      if s.get("kind") == "image" and s.get("media_path")]
+                        if pendientes:
+                            print(f"  → Analizando {len(pendientes)} imagen(es) con {vision.MODELO}…")
+                        for s in pendientes:
+                            desc = vision.describe(s["media_path"])
+                            if desc:
+                                storage.set_story_description(s["story_id"], desc)
+                                s["description"] = desc
+                                print(f"    · {s.get('username')}: {desc}")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"  ⚠ análisis local: {exc}", file=sys.stderr)
             print(f"→ Guardadas en la base: {n}")
         except Exception as exc:  # noqa: BLE001
             print(f"  ⚠ no pude guardar en la base: {exc}", file=sys.stderr)
