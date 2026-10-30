@@ -233,7 +233,22 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
     encontradas = []
     vistos = set()
     page.goto(f"{BASE}/stories/{real}/", wait_until="domcontentloaded")
-    time.sleep(7)
+
+    # ESPERAR a que el VISOR abra: al entrar, Instagram carga primero el perfil
+    # (solo el avatar) y el visor aparece un par de segundos después. Si se
+    # empieza a capturar antes, se pierde la PRIMERA historia.
+    listo = False
+    for _ in range(25):
+        time.sleep(1)
+        try:
+            _d = page.evaluate(JS_STORY) or {}
+        except Exception:  # noqa: BLE001
+            continue
+        if _d.get("video") or (_d.get("bestArea") or 0) >= AREA_MINIMA:
+            listo = True
+            break
+    if debug:
+        print(f"    (visor {'listo' if listo else 'NO abrió'} tras la espera)")
 
     vacios = 0
     for i in range(max_stories):
