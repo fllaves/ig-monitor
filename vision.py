@@ -16,13 +16,19 @@ OLLAMA = "http://localhost:11434"
 MODELO = "qwen2.5vl:7b"
 
 PROMPT = (
+    "Responde SIEMPRE en ESPAÑOL, sin excepciones, aunque el texto de la imagen "
+    "esté en otro idioma.\n\n"
     "Describe esta imagen de una historia de Instagram en UNA sola frase corta "
-    "en español (máximo 15 palabras). Di QUÉ se ve y DÓNDE, por ejemplo: "
-    "'selfie en el gimnasio', 'foto de comida en un restaurante', "
-    "'meme sobre política', 'paisaje de playa', 'texto motivacional', "
-    "'captura de pantalla de una conversación'. Sé neutro y objetivo: describe "
-    "el contenido, nunca el atractivo de las personas ni uses adjetivos sexuales."
+    "(máximo 15 palabras). Di QUÉ se ve y DÓNDE, por ejemplo: 'selfie en el "
+    "gimnasio', 'foto de comida en un restaurante', 'meme sobre política', "
+    "'paisaje de playa', 'texto motivacional', 'captura de pantalla de una "
+    "conversación'. Sé neutro y objetivo: describe el contenido, nunca el "
+    "atractivo de las personas ni uses adjetivos sexuales."
 )
+
+# Palabras que delatan otro idioma → se reintenta
+_NO_ESPANOL = ("autoportrait", "avec ", "dans ", "une ", "des ", "photo de",
+               "le ", "la photo", "portrait", "selbst", "ein ", "mit ")
 
 
 def disponible(timeout: float = 2.0) -> bool:
@@ -97,6 +103,22 @@ def describe(imagen, modelo: str = MODELO) -> str:
     except Exception:  # noqa: BLE001
         return ""
     texto = " ".join(str(texto).split()).strip().strip('"')
+
+    # Si el modelo contestó en otro idioma, se reintenta una vez
+    bajo = texto.lower()
+    if any(p in bajo for p in _NO_ESPANOL):
+        try:
+            payload["prompt"] = "¿Qué se ve en esta imagen? Responde en ESPAÑOL, " \
+                                "una sola frase corta y neutra."
+            req2 = urllib.request.Request(
+                f"{OLLAMA}/api/generate",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req2, timeout=180) as r2:
+                texto = json.loads(r2.read().decode("utf-8")).get("response", texto)
+            texto = " ".join(str(texto).split()).strip().strip('"')
+        except Exception:  # noqa: BLE001
+            pass
     return texto[:200]
 
 
