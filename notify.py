@@ -90,7 +90,9 @@ def build_stories_report(stories: List[Dict], day: str = "") -> str:
 
     for cuenta in sorted(por_cuenta):
         grupo = por_cuenta[cuenta]
-        lineas.append(f"**{cuenta}** — {len(grupo)} historia(s)")
+        import config as _cfg
+        es_mia = cuenta.upper() in {(_cfg.DISPLAY_NAME or "").upper(), _cfg.to_code(_cfg.USERNAME).upper()}
+        lineas.append(f"**{cuenta}**{' (tú)' if es_mia else ''} — {len(grupo)} historia(s)")
         for s in grupo:
             menciones = s.get("mentions") or []
             enlaces = s.get("links") or []

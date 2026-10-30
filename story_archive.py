@@ -277,6 +277,8 @@ def main() -> int:
     ap.add_argument("--out", default="data/story_archive.json")
     ap.add_argument("--media-dir", default="", help="carpeta donde descargar los medios")
     ap.add_argument("--max-stories", type=int, default=25)
+    ap.add_argument("--no-me", action="store_true",
+                    help="no capturar tus propias historias")
     ap.add_argument("--notify", action="store_true",
                     help="envía el informe diario por Telegram (texto + fotos)")
     ap.add_argument("--notify-photos", type=int, default=3,
@@ -295,6 +297,11 @@ def main() -> int:
     import config
 
     lista = args.accounts or ",".join(config.WATCHLIST)
+    # Tus propias historias: también se capturan para ver a quién etiquetas TÚ
+    if not args.no_me and config.USERNAME:
+        propia = config.to_code(config.USERNAME)
+        if propia.lower() not in [x.strip().lower() for x in lista.split(",")]:
+            lista = f"{propia},{lista}"
     pares = []
     for raw in lista.split(","):
         raw = raw.strip()
