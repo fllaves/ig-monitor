@@ -84,7 +84,28 @@ JS_MENTION_LINKS = """
 """
 
 
-def load_cookies(browser: str) -> dict:
+def load_cookies(browser: str, cache: str = "data/cookies.json",
+                 max_age_days: float = 7) -> dict:
+    """Devuelve las cookies de sesión.
+
+    Primero usa la **caché** (`data/cookies.json`) si es reciente: así la rutina
+    automática NO necesita que Brave esté cerrado. Si no hay caché o caducó,
+    lee el navegador.
+    """
+    import time as _t
+    cache_p = Path(cache)
+    if cache_p.exists():
+        try:
+            edad = (_t.time() - cache_p.stat().st_mtime) / 86400
+            if edad < max_age_days:
+                d = json.loads(cache_p.read_text())
+                if d.get("sessionid"):
+                    print(f"  ✔ Sesión desde caché ({edad:.1f} días)")
+                    return d
+            else:
+                print(f"  (caché de {edad:.0f} días: caducada, leo el navegador)")
+        except Exception:
+            pass
     try:
         import browser_cookie3
     except ImportError:
@@ -277,6 +298,8 @@ def main() -> int:
     ap.add_argument("--out", default="data/story_archive.json")
     ap.add_argument("--media-dir", default="", help="carpeta donde descargar los medios")
     ap.add_argument("--max-stories", type=int, default=25)
+    ap.add_argument("--save-cookies", action="store_true",
+                    help="guarda la sesión en data/cookies.json (así la rutina no necesita Brave cerrado)")
     ap.add_argument("--no-me", action="store_true",
                     help="no capturar tus propias historias")
     ap.add_argument("--notify", action="store_true",
@@ -308,6 +331,14 @@ def main() -> int:
         if raw:
             pares.append((config.to_code(raw), config.real_username(raw)))
     me = (args.me or config.USERNAME or "").strip().lstrip("@").lower()
+    if args.save_cookies:
+        cookies = load_cookies(args.browser, cache="/dev/null")
+        Path("data").mkdir(parents=True, exist_ok=True)
+        Path("data/cookies.json").write_text(json.dumps(cookies), encoding="utf-8")
+        print(f"✅ Sesión guardada en data/cookies.json ({len(cookies)} cookies)")
+        print("   La rutina automática la usará sin necesitar Brave cerrado.")
+        return 0
+
     cookies = load_cookies(args.browser)
     pw_cookies = [{"name": k, "value": v, "domain": ".instagram.com", "path": "/"}
                   for k, v in cookies.items()]
