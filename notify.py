@@ -87,6 +87,10 @@ def build_stories_report(stories: List[Dict], day: str = "") -> str:
     import config as _cfg
     mia = {(_cfg.DISPLAY_NAME or "").upper(), _cfg.to_code(_cfg.USERNAME).upper()}
 
+    def _url(u: str) -> str:
+        """URL completa del perfil (el mensaje pedía el enlace, no solo @user)."""
+        return f"https://instagram.com/{u}"
+
     por_cuenta: Dict[str, List[Dict]] = {}
     for s in stories:
         por_cuenta.setdefault(s.get("username") or "?", []).append(s)
@@ -110,8 +114,10 @@ def build_stories_report(stories: List[Dict], day: str = "") -> str:
         lineas.append(f"**{cuenta}**{' (tú)' if es_mia else ''} — "
                       f"{len(grupo)} historia(s)")
         if etiquetas_cuenta:
-            lineas.append("  🏷️ Etiqueta a: "
-                          + ", ".join(f"@{m}" for m in etiquetas_cuenta))
+            lineas.append("  🏷️ Etiqueta a:")
+            for m in etiquetas_cuenta:
+                lineas.append(f"    · @{m}")
+                lineas.append(f"      {_url(m)}")
         for s in grupo:
             tipo = "🎬" if s.get("kind") == "video" else "🖼️"
             hora = str(s.get("taken_at") or "")[11:16]
@@ -128,6 +134,7 @@ def build_stories_report(stories: List[Dict], day: str = "") -> str:
         for usuario, quien in sorted(etiquetados.items()):
             detalle = ", ".join(sorted(quien))
             lineas.append(f"  · @{usuario}  (por {detalle})")
+            lineas.append(f"    {_url(usuario)}")
         lineas.append("")
 
     lineas.append(f"Total: {len(stories)} historias · {total_mentions} etiqueta(s)")
