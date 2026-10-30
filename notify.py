@@ -85,6 +85,9 @@ def build_stories_report(stories: List[Dict], day: str = "") -> str:
 
     lineas = [f"📸 Historias capturadas · {day}", ""]
     total_mentions = 0
+    # Quién etiqueta a quién (agregado del día)
+    etiquetados = {}   # usuario etiquetado -> {quien: veces}
+
     for cuenta in sorted(por_cuenta):
         grupo = por_cuenta[cuenta]
         lineas.append(f"**{cuenta}** — {len(grupo)} historia(s)")
@@ -95,8 +98,11 @@ def build_stories_report(stories: List[Dict], day: str = "") -> str:
             if s.get("mentions_me"):
                 etiquetas.append("⬅️ TE MENCIONA")
             if menciones:
-                etiquetas.append("🏷️ " + ", ".join(f"@{m}" for m in menciones[:6]))
+                etiquetas.append("🏷️ " + ", ".join(f"@{m}" for m in menciones))
                 total_mentions += len(menciones)
+                for m in menciones:
+                    etiquetados.setdefault(m, {})
+                    etiquetados[m][cuenta] = etiquetados[m].get(cuenta, 0) + 1
             if enlaces:
                 etiquetas.append("🔗 con enlace")
             tipo = "🎬" if s.get("kind") == "video" else "🖼️"
@@ -107,9 +113,17 @@ def build_stories_report(stories: List[Dict], day: str = "") -> str:
                 lineas.append(f"  {tipo} {hora}")
         lineas.append("")
 
+    # Resumen: TODAS las personas etiquetadas hoy, y quién las etiquetó
+    if etiquetados:
+        lineas.append("👥 **Personas etiquetadas hoy:**")
+        for usuario, quien in sorted(etiquetados.items()):
+            detalle = ", ".join(f"{q}×{n}" for q, n in sorted(quien.items()))
+            lineas.append(f"  · @{usuario}  (por {detalle})")
+        lineas.append("")
+
     lineas.append(f"Total: {len(stories)} historias · {total_mentions} mención(es)")
     if total_mentions == 0:
-        lineas.append("(Sin etiquetas detectadas)")
+        lineas.append("(Sin etiquetas detectadas en las historias)")
     return "\n".join(lineas).strip()
 
 

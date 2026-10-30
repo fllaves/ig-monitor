@@ -58,6 +58,32 @@ JS_STORY = """
 """
 
 
+# JS: enlaces a perfiles DENTRO del visor de la historia (menciones/etiquetas)
+JS_MENTION_LINKS = """
+() => {
+  const re = /^\\/[A-Za-z0-9._]{2,40}\\/$/;
+  const media = document.querySelector('video') ||
+    Array.from(document.querySelectorAll('img')).find(i => (i.naturalWidth || 0) > 300);
+  if (media) {
+    let cont = media;
+    for (let n = 0; n < 6 && cont; n++) {
+      const enlaces = Array.from(cont.querySelectorAll('a[href]'))
+        .map(a => a.getAttribute('href')).filter(h => h && re.test(h));
+      if (enlaces.length) return enlaces;
+      cont = cont.parentElement;
+    }
+  }
+  // Fallback: todo el documento menos header/nav/footer
+  const fuera = new Set();
+  document.querySelectorAll('header a[href], nav a[href], footer a[href]')
+    .forEach(a => fuera.add(a.getAttribute('href')));
+  return Array.from(document.querySelectorAll('a[href]'))
+    .map(a => a.getAttribute('href'))
+    .filter(h => h && re.test(h) && !fuera.has(h));
+}
+"""
+
+
 def load_cookies(browser: str) -> dict:
     try:
         import browser_cookie3
@@ -79,6 +105,24 @@ def _iso(ts) -> str:
         return datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
     except (TypeError, ValueError, OSError):
         return ""
+
+
+IGNORAR_USUARIOS = {"explore", "blog", "about", "popular", "accounts", "direct",
+                    "legal", "privacy", "terms", "help", "api", "web", "home",
+                    "search", "notifications", "activity", "instagram", "reels",
+                    "stories", "p", "reel", "tv", "emails", "session"}
+
+
+def _mentions(html: str, dom_links=None, propia: str = "") -> list:
+    """Menciones de una historia: JSON embebido + enlaces del visor."""
+    nombres = set(_mentions_from_html(html))
+    for h in (dom_links or []):
+        u = str(h).strip("/").lower()
+        if len(u) > 1:
+            nombres.add(u)
+    propia = (propia or "").lower()
+    return [n for n in sorted(nombres)
+            if n not in IGNORAR_USUARIOS and n != propia and not n.startswith("_")]
 
 
 def _mentions_from_html(html: str) -> list:
@@ -126,7 +170,7 @@ def _story_id(code: str, media_url: str, pk: str, indice: int) -> str:
     return f"{code}-{base}"
 
 
-def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug):
+def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, dump=False):
     """Recorre las historias de una cuenta y devuelve las capturadas."""
     encontradas = []
     vistos = set()
@@ -164,7 +208,19 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug):
                 break
             vistos.add(sid)
 
-            mentions = _mentions_from_html(html)
+            if dump:
+                try:
+                    d = Path("data/debug")
+                    d.mkdir(parents=True, exist_ok=True)
+                    (d / f"{code}_{i}.html").write_text(html, encoding="utf-8")
+                    print(f"    (HTML guardado: data/debug/{code}_{i}.html)")
+                except Exception:
+                    pass
+            try:
+                dom_links = page.evaluate(JS_MENTION_LINKS) or []
+            except Exception:
+                dom_links = []
+            mentions = _mentions(html, dom_links, real)
             externos = _links_from_html(html)
             kind = "video" if data.get("video") else "image"
 
@@ -226,6 +282,8 @@ def main() -> int:
     ap.add_argument("--notify-photos", type=int, default=3,
                     help="máximo de fotos a enviar (0 = ninguna)")
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--dump-html", action="store_true",
+                    help="guarda el HTML de cada historia en data/debug/ (para depurar menciones)")
     args = ap.parse_args()
 
     try:
@@ -257,11 +315,12 @@ def main() -> int:
         ctx = browser.new_context(locale="es-ES", viewport={"width": 1280, "height": 900})
         ctx.add_cookies(pw_cookies)
         page = ctx.new_page()
+        debug_dir = Path("data/debug")
         for code, real in pares:
             print(f"→ @{code}")
             try:
                 nuevas = capture_account(page, ctx, code, real, me, args.max_stories,
-                                         args.media_dir, args.debug)
+                                         args.media_dir, args.debug, args.dump_html)
                 todas.extend(nuevas)
                 print(f"  {len(nuevas)} historia(s) capturada(s)")
             except Exception as exc:  # noqa: BLE001

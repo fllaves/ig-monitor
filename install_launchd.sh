@@ -56,6 +56,7 @@ case "${1:-}" in
         <string>--media-dir</string>
         <string>$DIR/data/stories</string>
         <string>--notify</string>
+        <string>--dump-html</string>
     </array>
     <key>WorkingDirectory</key><string>$DIR</string>
     <key>StartCalendarInterval</key>
