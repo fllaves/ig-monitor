@@ -10,8 +10,10 @@ Para activarlo, añade en `.env`:
 El bot se crea hablando con @BotFather en Telegram.
 """
 import json
+import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import analytics
@@ -34,6 +36,81 @@ def send_telegram(message: str) -> Tuple[bool, str]:
             return ok, ("enviado" if ok else body.get("description", "error"))
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)
+
+
+def send_telegram_photo(photo_path: str, caption: str = "") -> Tuple[bool, str]:
+    """Envía una imagen por Telegram (multipart/form-data, sin dependencias)."""
+    token = config.TELEGRAM_BOT_TOKEN
+    chat_id = config.TELEGRAM_CHAT_ID
+    if not token or not chat_id:
+        return False, "Telegram no configurado"
+    try:
+        datos = Path(photo_path).read_bytes()
+    except OSError as exc:
+        return False, f"no pude leer {photo_path}: {exc}"
+
+    boundary = f"----IGFV{int(time.time() * 1000)}"
+    partes: List[bytes] = []
+    for nombre, valor in (("chat_id", str(chat_id)), ("caption", (caption or "")[:1000])):
+        partes.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{nombre}"'
+            f"\r\n\r\n{valor}\r\n".encode("utf-8"))
+    partes.append(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; '
+        f'filename="{Path(photo_path).name}"\r\nContent-Type: image/jpeg\r\n\r\n'.encode("utf-8")
+        + datos + b"\r\n")
+    partes.append(f"--{boundary}--\r\n".encode("utf-8"))
+
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendPhoto",
+        data=b"".join(partes),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    try:
+        with urllib.request.urlopen(req, timeout=40) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+            ok = bool(body.get("ok"))
+            return ok, ("enviado" if ok else body.get("description", "error"))
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+
+
+def build_stories_report(stories: List[Dict], day: str = "") -> str:
+    """Informe diario de historias: cuántas, de quién y a quién menciona."""
+    if not stories:
+        return f"📸 Historias · {day}\n\nNo se capturó ninguna."
+
+    por_cuenta: Dict[str, List[Dict]] = {}
+    for s in stories:
+        por_cuenta.setdefault(s.get("username") or "?", []).append(s)
+
+    lineas = [f"📸 Historias capturadas · {day}", ""]
+    total_mentions = 0
+    for cuenta in sorted(por_cuenta):
+        grupo = por_cuenta[cuenta]
+        lineas.append(f"**{cuenta}** — {len(grupo)} historia(s)")
+        for s in grupo:
+            menciones = s.get("mentions") or []
+            enlaces = s.get("links") or []
+            etiquetas = []
+            if s.get("mentions_me"):
+                etiquetas.append("⬅️ TE MENCIONA")
+            if menciones:
+                etiquetas.append("🏷️ " + ", ".join(f"@{m}" for m in menciones[:6]))
+                total_mentions += len(menciones)
+            if enlaces:
+                etiquetas.append("🔗 con enlace")
+            tipo = "🎬" if s.get("kind") == "video" else "🖼️"
+            hora = str(s.get("taken_at") or "")[11:16]
+            if etiquetas:
+                lineas.append(f"  {tipo} {hora} · " + " · ".join(etiquetas))
+            elif len(grupo) <= 4:
+                lineas.append(f"  {tipo} {hora}")
+        lineas.append("")
+
+    lineas.append(f"Total: {len(stories)} historias · {total_mentions} mención(es)")
+    if total_mentions == 0:
+        lineas.append("(Sin etiquetas detectadas)")
+    return "\n".join(lineas).strip()
 
 
 def build_alert_message(deltas: List[Dict], posts: Optional[List[Dict]] = None,

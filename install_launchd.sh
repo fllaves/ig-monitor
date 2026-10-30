@@ -55,6 +55,7 @@ case "${1:-}" in
         <string>$DIR/story_archive.py</string>
         <string>--media-dir</string>
         <string>$DIR/data/stories</string>
+        <string>--notify</string>
     </array>
     <key>WorkingDirectory</key><string>$DIR</string>
     <key>StartCalendarInterval</key>

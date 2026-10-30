@@ -221,6 +221,10 @@ def main() -> int:
     ap.add_argument("--out", default="data/story_archive.json")
     ap.add_argument("--media-dir", default="", help="carpeta donde descargar los medios")
     ap.add_argument("--max-stories", type=int, default=25)
+    ap.add_argument("--notify", action="store_true",
+                    help="envía el informe diario por Telegram (texto + fotos)")
+    ap.add_argument("--notify-photos", type=int, default=3,
+                    help="máximo de fotos a enviar (0 = ninguna)")
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
 
@@ -285,7 +289,26 @@ def main() -> int:
             print(f"  ⚠ no pude guardar en la base: {exc}", file=sys.stderr)
     else:
         print("  No se capturó nada. ¿Tienen historias activas ahora mismo?")
-        print("  Consejo: vuelve a intentarlo cuando alguna tenga el aro de historia.")
+
+    # Informe diario por Telegram (texto + fotos de las historias)
+    if args.notify:
+        try:
+            import notify
+            dia = datetime.now().strftime("%d %b %Y")
+            mensaje = notify.build_stories_report(todas, dia)
+            ok, info = notify.send_telegram(mensaje)
+            print(f"→ Telegram: {'✅ enviado' if ok else '⚠️ ' + info}")
+            if ok and args.notify_photos:
+                fotos = [s for s in todas
+                         if s.get("media_path") and s.get("kind") == "image"]
+                for s in fotos[:args.notify_photos]:
+                    cap = (f"@{s.get('username')} · {str(s.get('taken_at'))[:16]}"
+                           + (" · ⬅️ TE MENCIONA" if s.get("mentions_me") else ""))
+                    ok2, info2 = notify.send_telegram_photo(s["media_path"], cap)
+                    print(f"   · foto de {s.get('username')}: "
+                          f"{'✅' if ok2 else '⚠️ ' + info2}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ⚠ no se pudo enviar el informe: {exc}", file=sys.stderr)
     return 0
 
 
