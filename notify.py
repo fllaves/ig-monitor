@@ -96,6 +96,18 @@ def build_stories_report(stories: List[Dict], day: str = "") -> str:
         por_cuenta.setdefault(s.get("username") or "?", []).append(s)
 
     lineas = [f"📸 Historias capturadas · {day}", ""]
+
+    # 🚨 Lo primero: quién te etiquetó a TI
+    mencionan = [s for s in stories if s.get("mentions_me")]
+    if mencionan:
+        lineas.append("🚨 **¡TE ETIQUETARON EN UNA HISTORIA!**")
+        for s in mencionan:
+            tipo = "🎬 video" if s.get("kind") == "video" else "🖼️ foto"
+            hora = str(s.get("taken_at") or "")[:16]
+            lineas.append(f"  · **{s.get('username')}** — {tipo} · {hora}")
+            if s.get("media_path"):
+                lineas.append(f"    (guardada en {s['media_path']})")
+        lineas.append("")
     etiquetados: Dict[str, Dict[str, int]] = {}
     total_mentions = 0
 

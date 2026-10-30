@@ -428,6 +428,17 @@ def main() -> int:
     if args.notify:
         try:
             import notify
+
+            # 🚨 Alerta URGENTE aparte si alguien te etiquetó
+            tocados = [s for s in todas if s.get("mentions_me")]
+            if tocados:
+                aviso = "🚨 ¡TE ETIQUETARON EN UNA HISTORIA!\n\n"
+                for s in tocados:
+                    aviso += (f"· {s.get('username')} — "
+                              f"{str(s.get('taken_at'))[:16]}\n")
+                notify.send_telegram(aviso)
+                print(f"→ Alerta de etiqueta: {len(tocados)}")
+
             dia = datetime.now().strftime("%d %b %Y")
             mensaje = notify.build_stories_report(todas, dia)
             ok, info = notify.send_telegram(mensaje)
