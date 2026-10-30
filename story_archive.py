@@ -233,7 +233,7 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
     encontradas = []
     vistos = set()
     page.goto(f"{BASE}/stories/{real}/", wait_until="domcontentloaded")
-    time.sleep(5)
+    time.sleep(7)
 
     vacios = 0
     for i in range(max_stories):
@@ -246,10 +246,25 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
         area = data.get("bestArea") or 0
         media_url = data.get("video") or (data.get("best") if area >= AREA_MINIMA else None)
 
+        # Si el medio aún no cargó, ESPERAR y reintentar antes de avanzar.
+        # Antes se pulsaba la flecha igual y se perdía la historia (la primera).
+        intentos = 0
+        while not media_url and intentos < 5:
+            time.sleep(1.5)
+            intentos += 1
+            try:
+                data = page.evaluate(JS_STORY) or {}
+            except Exception:  # noqa: BLE001
+                break
+            area = data.get("bestArea") or 0
+            media_url = data.get("video") or (data.get("best") if area >= AREA_MINIMA else None)
+        if intentos and debug:
+            print(f"    (reintenté {intentos} veces la carga)")
+
         if not media_url:
             vacios += 1
             if debug:
-                print(f"    (sin medio real: {data.get('total', 0)} imgs, área máx {area})")
+                print(f"    (sin medio real tras reintentos: {data.get('total', 0)} imgs, área máx {area})")
             if vacios >= 2:
                 break
         else:
