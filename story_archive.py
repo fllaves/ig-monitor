@@ -147,16 +147,33 @@ def _mentions(html: str, dom_links=None, propia: str = "") -> list:
 
 
 def _mentions_from_html(html: str) -> list:
-    """Extrae las menciones REALES (stickers) del JSON embebido de la historia.
+    """Extrae las menciones REALES (stickers) del HTML de la historia.
 
-    Los enlaces del DOM incluyen navegación, sugerencias y cuentas relacionadas,
-    así que producían falsos positivos. El JSON sí trae las menciones de verdad.
+    Estructura moderna de Instagram (2024+):
+        "bloks_sticker": {"sticker_data": {"ig_mention": {
+            "full_name": "...", "username": "..." }}}
+
+    También se mantiene compatibilidad con las claves antiguas
+    (`reel_mentions` / `story_mentions`).
     """
     nombres = []
+
+    # 1) Estructura moderna: ig_mention dentro de un bloks_sticker
+    for m in re.finditer(
+            r'"ig_mention":\s*\{[^{}]{0,600}?"username":"([A-Za-z0-9._]{1,40})"', html):
+        nombres.append(m.group(1).lower())
+
+    # 2) Por si el JSON cambia de forma: cualquier "ig_mention" cercano
+    for m in re.finditer(r'"ig_mention"', html):
+        trozo = html[m.end():m.end() + 600]
+        nombres += re.findall(r'"username":"([A-Za-z0-9._]{1,40})"', trozo)
+
+    # 3) Compatibilidad con estructuras antiguas
     for clave in ("reel_mentions", "story_mentions"):
         for m in re.finditer(rf'"{clave}":\s*\[', html):
             trozo = html[m.end():m.end() + 4000]
             nombres += re.findall(r'"username":"([A-Za-z0-9._]{1,40})"', trozo)
+
     return list(dict.fromkeys(n.lower() for n in nombres))
 
 
