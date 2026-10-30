@@ -219,7 +219,10 @@ def _story_id(code: str, media_url: str, pk: str, indice: int) -> str:
     import hashlib
 
     if media_url:
-        base = hashlib.sha1(media_url.encode("utf-8", "replace")).hexdigest()[:16]
+        # La URL del CDN lleva firma (?stp=...&oh=...) que cambia en cada carga:
+        # se usa solo la ruta para que el id sea ESTABLE entre corridas.
+        limpia = str(media_url).split("?")[0]
+        base = hashlib.sha1(limpia.encode("utf-8", "replace")).hexdigest()[:16]
     else:
         base = f"{pk}-{indice}"
     return f"{code}-{base}"
