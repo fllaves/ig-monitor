@@ -238,7 +238,7 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
     # (solo el avatar) y el visor aparece un par de segundos después. Si se
     # empieza a capturar antes, se pierde la PRIMERA historia.
     listo = False
-    for _ in range(25):
+    for _n in range(25):
         time.sleep(1)
         try:
             _d = page.evaluate(JS_STORY) or {}
@@ -247,6 +247,15 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
         if _d.get("video") or (_d.get("bestArea") or 0) >= AREA_MINIMA:
             listo = True
             break
+        # El autoplay está bloqueado: sin reproducir, el <video> no tiene src y
+        # la PRIMERA historia nunca se detecta. Se silencia y se fuerza play().
+        if _n in (1, 4, 9, 16):
+            try:
+                page.evaluate(
+                    "() => document.querySelectorAll('video').forEach("
+                    "v => { v.muted = true; v.play().catch(()=>{}); })")
+            except Exception:  # noqa: BLE001
+                pass
     if debug:
         print(f"    (visor {'listo' if listo else 'NO abrió'} tras la espera)")
 
