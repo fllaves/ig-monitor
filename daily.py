@@ -101,6 +101,28 @@ def main() -> int:
         storage.get_ingest_log(300),
     )
 
+    # Fallback: en modo económico no se sincronizan listas, así que no hay
+    # eventos de relación y el informe decía "+0/−0" aunque los seguidores
+    # cambiasen. Se usa el histórico de perfiles para calcular el neto real.
+    if not digest.get("new_followers") and not digest.get("lost_followers"):
+        try:
+            hist = [h for h in storage.get_profile_history()
+                    if str(h.get("followers_count") or "").isdigit()]
+            propios = [h for h in hist
+                       if str(h.get("username", "")).lower() == config.USERNAME.lower()
+                       or "IG FV" in str(h.get("username", ""))]
+            if len(propios) >= 2:
+                antes = int(propios[-2]["followers_count"])
+                ahora = int(propios[-1]["followers_count"])
+                neto = ahora - antes
+                digest["net_followers"] = neto
+                digest["new_followers"] = max(neto, 0)
+                digest["lost_followers"] = max(-neto, 0)
+                digest["followers_now"] = ahora
+                print(f"  (seguidores: {antes} → {ahora} = {neto:+d})")
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ⚠ no pude calcular seguidores: {exc}", file=sys.stderr)
+
     message = notify.build_daily_message(digest, result)
     print("\n" + message + "\n")
 
