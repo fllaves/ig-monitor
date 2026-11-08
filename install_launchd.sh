@@ -57,6 +57,8 @@ case "${1:-}" in
         <string>$DIR/data/stories</string>
         <string>--notify</string>
         <string>--dump-html</string>
+        <string>--jitter</string>
+        <string>1800</string>
     </array>
     <key>WorkingDirectory</key><string>$DIR</string>
     <key>StartCalendarInterval</key>

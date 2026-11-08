@@ -101,6 +101,24 @@ def load_cookies(browser: str, cache: str = "data/cookies.json",
                 d = json.loads(cache_p.read_text())
                 if d.get("sessionid"):
                     print(f"  ✔ Sesión desde caché ({edad:.1f} días)")
+                    # Aviso 2 días antes de que caduque (7 días de vida)
+                    if edad >= 5.0:
+                        try:
+                            import notify as _n
+                            marca = Path("data/.aviso_cookies")
+                            hoy = datetime.now().strftime("%Y-%m-%d")
+                            if not marca.exists() or marca.read_text().strip() != hoy:
+                                _n.send_telegram(
+                                    f"⚠️ La sesión de la burner tiene {edad:.0f} días "
+                                    f"de 7.\n\nEn ~{7-edad:.0f} día(s) dejará de funcionar.\n\n"
+                                    "Para renovarla:\n"
+                                    "1. Abre Brave con la burner\n"
+                                    "2. Cierra Brave\n"
+                                    "3. cd ~/ig-monitor && python3 story_archive.py --save-cookies")
+                                marca.write_text(hoy)
+                                print("  → aviso de caducidad enviado")
+                        except Exception:  # noqa: BLE001
+                            pass
                     return d
             else:
                 print(f"  (caché de {edad:.0f} días: caducada, leo el navegador)")
@@ -393,10 +411,19 @@ def main() -> int:
                     help="envía el informe diario por Telegram (texto + fotos)")
     ap.add_argument("--notify-photos", type=int, default=3,
                     help="máximo de fotos a enviar (0 = ninguna)")
+    ap.add_argument("--jitter", type=int, default=0,
+                    help="retraso aleatorio máximo en segundos (para no parecer un bot)")
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--dump-html", action="store_true",
                     help="guarda el HTML de cada historia en data/debug/ (para depurar menciones)")
     args = ap.parse_args()
+
+    # Horario variable: un bot exacto a las 5:30 es detectable. Se retrasa
+    # un tiempo aleatorio para que parezca una persona.
+    if args.jitter > 0:
+        espera = random.randint(0, args.jitter)
+        print(f"⏱ retraso aleatorio: {espera // 60} min {espera % 60} s")
+        time.sleep(espera)
 
     try:
         from playwright.sync_api import sync_playwright
