@@ -247,6 +247,9 @@ def _story_id(code: str, media_url: str, pk: str, indice: int) -> str:
     return f"{code}-{base}"
 
 
+_hashes_vistos = set()
+
+
 def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, dump=False):
     """Recorre las historias de una cuenta y devuelve las capturadas."""
     encontradas = []
@@ -371,7 +374,18 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
                     resp = ctx.request.get(media_url, timeout=60000)
                     if resp.ok:
                         destino.parent.mkdir(parents=True, exist_ok=True)
-                        destino.write_bytes(resp.body())
+                        cuerpo = resp.body()
+                        # Dedup por CONTENIDO: la URL del CDN cambia entre
+                        # cargas, así que el mismo medio se guardaba varias
+                        # veces con nombres distintos. Se compara el hash.
+                        import hashlib as _h
+                        md5 = _h.md5(cuerpo).hexdigest()
+                        if md5 in _hashes_vistos:
+                            if debug:
+                                print("    (medio repetido: se omite)")
+                            continue
+                        _hashes_vistos.add(md5)
+                        destino.write_bytes(cuerpo)
                         media_path = str(destino)
                 except Exception as exc:  # noqa: BLE001
                     if debug:
