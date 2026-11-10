@@ -308,7 +308,7 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
         # Si no navegó (o redirigió), el DOM es del perfil ANTERIOR y se
         # guardaría su foto como si fuera de esta cuenta.
         actual = page.url or ""
-        if f"/stories/{real}" not in actual and real.lower() not in actual.lower():
+        if f"/stories/{real}".lower() not in actual.lower():
             print(f"    ⚠ no está en /stories/{real} (está en {actual[:55]}) → reintento",
                   file=sys.stderr)
             try:
