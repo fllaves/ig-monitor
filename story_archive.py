@@ -37,21 +37,22 @@ AREA_MINIMA = 90_000
 # JS: datos del visor de historias (elige la imagen MÁS GRANDE, no la última)
 JS_STORY = """
 () => {
-  const out = {video: null, best: null, bestArea: 0, links: [], total: 0};
-  const v = document.querySelector('video');
-  if (v) out.video = v.currentSrc || v.src || null;
-  document.querySelectorAll('img').forEach(i => {
-    const s = i.currentSrc || i.src;
-    if (!s || !s.startsWith('http')) return;
-    out.total += 1;
-    const w = i.naturalWidth || 0, h = i.naturalHeight || 0;
-    if (w * h > out.bestArea) { out.bestArea = w * h; out.best = s; }
+  const vh = window.innerHeight, vw = window.innerWidth;
+  const out = {video: null, best: null, bestArea: 0, links: [], total: 0, enPantalla: 0};
+  // Vídeo: solo si ocupa al menos la mitad de la pantalla (no un thumbnail)
+  const v = Array.from(document.querySelectorAll('video')).find(x => {
+    const r = x.getBoundingClientRect();
+    return r.height >= vh * 0.45 && r.width >= 180;
   });
-  document.querySelectorAll('a[href]').forEach(a => {
-    const h = a.getAttribute('href');
-    if (!h) return;
-    if (h.startsWith('http')) out.links.push(h);
-    else if (/^\\/[A-Za-z0-9._]+\\/$/.test(h)) out.links.push(h);
+  if (v) out.video = v.currentSrc || v.src || null;
+  // Imagen: solo la que está GRANDE en pantalla (la historia), no la rejilla
+  document.querySelectorAll('img').forEach(i => {
+    const r = i.getBoundingClientRect();
+    out.total++;
+    if (r.width < 180 || r.height < vh * 0.40) return;
+    out.enPantalla++;
+    const a = (i.naturalWidth || 0) * (i.naturalHeight || 0);
+    if (a > out.bestArea) { out.bestArea = a; out.best = i.currentSrc || i.src; }
   });
   return out;
 }
@@ -250,7 +251,8 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
     """Recorre las historias de una cuenta y devuelve las capturadas."""
     encontradas = []
     vistos = set()
-    page.goto(f"{BASE}/stories/{real}/", wait_until="domcontentloaded")
+    destino = f"{BASE}/stories/{real}/"
+    page.goto(destino, wait_until="domcontentloaded")
 
     # ESPERAR a que el VISOR abra: al entrar, Instagram carga primero el perfil
     # (solo el avatar) y el visor aparece un par de segundos después. Si se
@@ -302,6 +304,19 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
             media_url = data.get("video") or (data.get("best") if area >= AREA_MINIMA else None)
         if intentos and debug:
             print(f"    (reintenté {intentos} veces la carga)")
+
+        # Si no navegó (o redirigió), el DOM es del perfil ANTERIOR y se
+        # guardaría su foto como si fuera de esta cuenta.
+        actual = page.url or ""
+        if f"/stories/{real}" not in actual and real.lower() not in actual.lower():
+            print(f"    ⚠ no está en /stories/{real} (está en {actual[:55]}) → reintento",
+                  file=sys.stderr)
+            try:
+                page.goto(destino, wait_until="domcontentloaded")
+                time.sleep(4)
+            except Exception:  # noqa: BLE001
+                pass
+            continue
 
         if not media_url:
             vacios += 1
