@@ -312,14 +312,21 @@ def capture_account(page, ctx, code, real, me, max_stories, media_dir, debug, du
         # guardaría su foto como si fuera de esta cuenta.
         actual = page.url or ""
         if f"/stories/{real}".lower() not in actual.lower():
-            print(f"    ⚠ no está en /stories/{real} (está en {actual[:55]}) → reintento",
+            # Si Instagram redirigió al PERFIL es que no hay historias activas
+            # (es normal, no un error): se pasa a la siguiente cuenta.
+            if actual.rstrip("/").lower().endswith(f"/{real.lower()}"):
+                if debug:
+                    print("    (sin historias activas → redirige al perfil)")
+                break
+            # Cualquier otra cosa sí es un problema: un reintento y salir
+            print(f"    ⚠ no está en /stories/{real} (está en {actual[:55]})",
                   file=sys.stderr)
             try:
                 page.goto(destino, wait_until="domcontentloaded")
                 time.sleep(4)
             except Exception:  # noqa: BLE001
                 pass
-            continue
+            break
 
         if not media_url:
             vacios += 1
